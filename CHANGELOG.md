@@ -6,6 +6,12 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-02
+
+### Fixed
+
+- The on-screen keyboard now shows how to leave it: B on an empty field goes back, and the footer shows B Back, or MENU Cancel once there is text (MiniDeck 1.0.1).
+
 ## [1.0.1] - 2026-11-02
 
 ### Fixed
@@ -18,6 +24,7 @@ All notable changes are listed here. The format follows
 
 - The first release: login by QR code, devices with ping, exit nodes, subnet routes, Tailscale DNS and SSH, shields up, accounts, Taildrop, start at boot, SOCKS5 and HTTP proxies, `miniscale-fwd` port forwards and a status icon in the Onion menu, on Tailscale 1.104.4.
 
-[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/zakijss/MiniScale/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/zakijss/MiniScale/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/zakijss/MiniScale/releases/tag/v1.0.0
