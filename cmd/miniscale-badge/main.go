@@ -6,10 +6,18 @@
 // It stays small on purpose (it runs all the time next to games): it uses
 // the fb package rather than the full UI with its fonts, and speaks just
 // enough HTTP to read tailscaled's state.
+//
+// The menu paints over the icon when a button is pressed and, while idle,
+// about once a second (its clock and battery). The icon has to be put back
+// within a few milliseconds or it visibly blinks, but checking every 8 ms
+// all the time cost about 3% of a core with the menu just sitting there. So
+// it is checked every 8 ms only for a moment after a press and just before
+// the next once-a-second repaint is due, and every 100 ms otherwise.
 package main
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"image"
@@ -27,6 +35,68 @@ import (
 	"github.com/zakijss/minideck/version"
 )
 
+const (
+	fastGuard = 8 * time.Millisecond    // check rate while the menu is likely to repaint
+	slowGuard = 100 * time.Millisecond  // check rate the rest of the time
+	hot       = 1500 * time.Millisecond // fast checks after a press
+	// The menu's idle repaint comes about a second after the last one
+	// (measured: every 1.015 s). Checks go fast from early before it is due
+	// until it has been seen, or until late after (a theme without a clock
+	// may not repaint at all; then they stay slow until the next one).
+	tickEvery = time.Second
+	early     = 120 * time.Millisecond
+	late      = 300 * time.Millisecond
+	// A repaint this soon after a press is the press's own, not the
+	// once-a-second one, so it doesn't move the anchor.
+	pressEcho = 250 * time.Millisecond
+)
+
+// guardEvery returns how often to check the icon at now. The menu may
+// repaint because of a press until hotUntil, and repainted on its own at
+// anchor (zero: not seen yet).
+func guardEvery(now, hotUntil, anchor time.Time) time.Duration {
+	if now.Before(hotUntil) {
+		return fastGuard
+	}
+	if !anchor.IsZero() {
+		if d := now.Sub(anchor); d >= tickEvery-early && d < tickEvery+late {
+			return fastGuard
+		}
+	}
+	return slowGuard
+}
+
+// buttons signals (without blocking) each time a button goes down or up.
+// It reads the device in a goroutine that sleeps in read(), so it costs
+// nothing while no one touches the buttons. Without the device the channel
+// never delivers and ok is false.
+func buttons() (ch <-chan struct{}, ok bool) {
+	c := make(chan struct{}, 1)
+	f, err := os.Open("/dev/input/event0")
+	if err != nil {
+		return c, false
+	}
+	go func() {
+		defer f.Close()
+		// struct input_event on 32-bit ARM: timeval (2 x int32), type u16,
+		// code u16, value s32 = 16 bytes.
+		buf := make([]byte, 16)
+		for {
+			if _, err := io.ReadFull(f, buf); err != nil {
+				return
+			}
+			if binary.LittleEndian.Uint16(buf[8:]) != 1 { // EV_KEY
+				continue
+			}
+			select {
+			case c <- struct{}{}:
+			default:
+			}
+		}
+	}()
+	return c, true
+}
+
 var (
 	white  = color.RGBA{0xff, 0xff, 0xff, 0xff}
 	grey   = color.RGBA{0x8e, 0x8e, 0x93, 0xff}
@@ -42,6 +112,7 @@ func main() {
 	size := flag.Int("size", 26, "icon size")
 	flag.Parse()
 	debug.SetGCPercent(20) // tiny heap: collect early, stay small
+	trace := os.Getenv("MINISCALE_BADGE_TRACE") != ""
 
 	p, err := fb.OpenPatch(image.Rect(*x, *y, *x+*size, *y+*size))
 	if err != nil {
@@ -49,16 +120,56 @@ func main() {
 	}
 	defer p.Close()
 
+	// A pixel in the middle of the icon's top node: always the icon's own
+	// colour, so anything else there means the menu has drawn over it.
+	probeX, probeY := *size/2, *size/4
+	var probeC color.RGBA
+
 	state, drawn := "", ""
 	var base color.RGBA
 	menuPid := 0
 	shown := false
+
+	press, haveButtons := buttons()
+	var hotUntil, anchor, lastPress time.Time
+	if !haveButtons {
+		// can't tell when a press repaints the menu: check often all the time
+		hotUntil = time.Now().Add(100 * 365 * 24 * time.Hour)
+	}
+
 	var guard <-chan time.Time
 	var guardT *time.Ticker
+	var every time.Duration
+	// setGuard starts the checks, or changes their rate, to suit now.
+	setGuard := func() {
+		want := guardEvery(time.Now(), hotUntil, anchor)
+		if guardT == nil {
+			guardT = time.NewTicker(want)
+			guard = guardT.C
+		} else if want != every {
+			guardT.Reset(want)
+		}
+		every = want
+	}
+	stopGuard := func() {
+		if guardT != nil {
+			guardT.Stop()
+			guardT, guard, every = nil, nil, 0
+		}
+	}
+
 	poll := time.NewTicker(time.Second)
 	n := 0
 	for {
 		select {
+		case <-press:
+			lastPress = time.Now()
+			if haveButtons {
+				hotUntil = lastPress.Add(hot)
+			}
+			if guardT != nil {
+				setGuard()
+			}
 		case <-poll.C:
 			n++
 			if n%3 == 1 {
@@ -71,6 +182,10 @@ func main() {
 			if show && !shown {
 				// let the menu draw its top bar first
 				time.Sleep(300 * time.Millisecond)
+				if haveButtons {
+					hotUntil = time.Now().Add(hot)
+				}
+				anchor = time.Time{}
 			}
 			shown = show
 			if show {
@@ -81,24 +196,34 @@ func main() {
 				if c := p.ScreenPixel(fb.W-4, 3); c != base || state != drawn {
 					base, drawn = c, state
 					p.SnapshotColor(c)
-					p.Set(drawIcon(p.Background(), state), 1)
+					img := drawIcon(p.Background(), state)
+					p.Set(img, 1)
+					probeC = img.RGBAAt(probeX, probeY)
 				}
-				if guardT == nil {
-					guardT = time.NewTicker(8 * time.Millisecond)
-					guard = guardT.C
-				}
+				setGuard()
 			} else {
 				drawn = ""
-				if guardT != nil {
-					guardT.Stop()
-					guardT, guard = nil, nil
-				}
+				stopGuard()
 			}
 		case <-guard:
 			if !procs.Exists(menuPid) {
 				continue
 			}
+			now := time.Now()
+			if p.ScreenPixel(*x+probeX, *y+probeY) != probeC {
+				if now.Sub(lastPress) > pressEcho {
+					anchor = now
+				}
+				if trace {
+					since := "no press yet"
+					if !lastPress.IsZero() {
+						since = now.Sub(lastPress).Round(time.Millisecond).String() + " after a press"
+					}
+					log.Printf("trace: painted over (checking every %v, %s)", every, since)
+				}
+			}
 			p.Guard()
+			setGuard()
 		}
 	}
 }
