@@ -1,0 +1,19 @@
+# MiniScale settings (shell syntax). Changes apply at the next start.
+
+# Name of this device on your tailnet.
+TS_HOSTNAME=miyoo
+
+# Run the Tailscale SSH server (access is controlled by your tailnet policy).
+# Only applied at first login.
+TS_SSH=true
+
+# Local proxies other apps can use to reach the tailnet.
+SOCKS_PORT=1055
+HTTP_PROXY_PORT=1056
+
+# Status icon next to Wi-Fi in the Onion menu: white = connected, grey =
+# connecting, orange = needs a login. Move it if your theme puts Wi-Fi
+# elsewhere, or set BADGE=false to hide it.
+#BADGE=true
+#BADGE_X=474
+#BADGE_Y=18

@@ -1,0 +1,20 @@
+{
+  "name": "MiniScale",
+  "folder": "MiniScale",
+  "desc": "Puts the device on your tailnet (unofficial Tailscale client)",
+  "repo": "zakijss/MiniScale",
+  "license": "MIT",
+  "version": "__VERSION__",
+  "zip": "https://github.com/zakijss/MiniScale/releases/download/v__VERSION__/miniscale-__VERSION__.zip",
+  "sha256": "__SHA256__",
+  "size": __SIZE__,
+  "strip": "App/",
+  "released": "__RELEASED__",
+  "facts": [
+    "Keeps the tailnet login on the card only encrypted, with a key in the device's own flash."
+  ],
+  "system": "Adds a boot script (.tmp_update/startup/miniscale.sh) that starts Tailscale at boot while it is switched on, and a device key in the internal flash (/appconfigs/minideck.key).",
+  "boot": [
+    "miniscale.sh"
+  ]
+}

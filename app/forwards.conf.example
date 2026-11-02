@@ -1,0 +1,9 @@
+# Local port forwards: apps on the Miyoo connect to 127.0.0.1:LOCALPORT and
+# reach HOST:PORT on your tailnet. One per line: LOCALPORT  HOST:PORT
+# HOST can be a MagicDNS name (homeserver) or a 100.x address.
+# Your tailnet policy must allow this device to reach HOST:PORT.
+#
+# 8096  homeserver:8096      # Jellyfin
+# 4533  homeserver:4533      # Navidrome
+# 61208 nas:61208  # Glances
+# 8090  nas:8090   # Beszel

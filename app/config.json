@@ -1,0 +1,6 @@
+{
+	"label":	"MiniScale",
+	"icon":	"/mnt/SDCARD/App/MiniScale/icon.png",
+	"launch":	"launch.sh",
+	"description":	"Tailscale: devices, exit nodes, Taildrop"
+}
