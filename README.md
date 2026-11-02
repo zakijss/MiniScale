@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/hero.jpg" alt="A Miyoo Mini Plus standing next to a phone and a home router, showing a tailnet in MiniScale" width="100%"></p>
+<p align="center"><img src="docs/hero.jpg" alt="Three Miyoo Mini Plus handhelds on a sunlit window sill with potted plants, a white one on a stand showing a tailnet in MiniScale" width="100%"></p>
 
 [![CI](https://github.com/zakijss/MiniScale/actions/workflows/ci.yml/badge.svg)](https://github.com/zakijss/MiniScale/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/zakijss/MiniScale)](https://github.com/zakijss/MiniScale/releases)
@@ -15,7 +15,7 @@ An unofficial Tailscale client for the Miyoo Mini Plus. It puts the device on yo
 - Tailscale 1.104.4 built from source down to 18.9 MB, with its state on the card only encrypted, with a key kept in the device's own flash.
 
 
-<p align="center"><img src="docs/desk.jpg" alt="MiniScale running on a Miyoo Mini Plus lying on a desk" width="100%"></p>
+<p align="center"><img src="docs/desk.jpg" alt="A clear purple Miyoo Mini Plus on a stand showing a tailnet in MiniScale" width="100%"></p>
 
 ## Using it
 
