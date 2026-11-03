@@ -168,6 +168,15 @@ func TestSaveTaildropFiles(t *testing.T) {
 	if len(f.files) != 0 {
 		t.Error("not removed from the inbox")
 	}
+	// a saved file that looks like a temporary one is left alone
+	os.WriteFile(filepath.Join(dir, "a.txt.part"), []byte("mine"), 0o644)
+	f.files = map[string]string{"a.txt": "new"}
+	if _, err := a.saveFiles([]WaitingFile{{"a.txt", 3}}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "a.txt.part")); string(b) != "mine" {
+		t.Errorf("a.txt.part overwritten: %q", b)
+	}
 	for _, name := range []string{"..", ".", "/"} {
 		if _, err := a.saveFiles([]WaitingFile{{name, 1}}); err == nil {
 			t.Errorf("saved a file called %q", name)

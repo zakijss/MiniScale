@@ -294,11 +294,12 @@ func (a *app) saveFile(dir, name string) error {
 	}
 	defer rc.Close()
 	dst := freeName(dir, base)
-	tmp := dst + ".part"
-	out, err := os.Create(tmp)
+	// a unique temporary name: dst+".part" could be a file saved earlier
+	out, err := os.CreateTemp(dir, ".taildrop-*.part")
 	if err != nil {
 		return err
 	}
+	tmp := out.Name()
 	if _, err := io.Copy(out, rc); err != nil {
 		out.Close()
 		os.Remove(tmp)
