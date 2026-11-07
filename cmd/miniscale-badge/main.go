@@ -1,7 +1,8 @@
 // miniscale-badge draws MiniScale's status icon next to the theme's Wi-Fi
 // icon in the Onion menu's top bar: white when connected to the tailnet,
 // grey while connecting, orange when it needs a login. It runs while
-// MiniScale is on and draws only over the menu (not in games or apps).
+// MiniScale is on and draws only over the menu (not in games or apps, nor
+// while the menu is paused by a program that has taken the screen).
 //
 // It stays small on purpose (it runs all the time next to games): it uses
 // the fb package rather than the full UI with its fonts, and speaks just
@@ -17,6 +18,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"flag"
@@ -28,6 +30,7 @@ import (
 	"net"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"time"
 
 	"github.com/zakijss/minideck/fb"
@@ -178,7 +181,7 @@ func main() {
 			if menuPid == 0 || !procs.Exists(menuPid) {
 				menuPid = procs.Pid("MainUI")
 			}
-			show := menuPid > 0 && !procs.GameRunning() && state != ""
+			show := menuPid > 0 && !menuPaused(menuPid) && !procs.GameRunning() && state != ""
 			if show && !shown {
 				// let the menu draw its top bar first
 				time.Sleep(300 * time.Millisecond)
@@ -226,6 +229,20 @@ func main() {
 			setGuard()
 		}
 	}
+}
+
+// menuPaused reports whether the menu is stopped (SIGSTOP), as when a program
+// that takes over the screen pauses it: a frozen menu isn't what's on screen.
+func menuPaused(pid int) bool {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	return err == nil && stoppedState(b)
+}
+
+// stoppedState reads the state field of a /proc/<pid>/stat line: the first
+// field after the ")" that closes the command name, which may itself hold ") ".
+func stoppedState(stat []byte) bool {
+	i := bytes.LastIndexByte(stat, ')')
+	return i >= 0 && i+2 < len(stat) && (stat[i+2] == 'T' || stat[i+2] == 't')
 }
 
 // backend returns tailscaled's state ("Running", "Starting", "NeedsLogin"…),

@@ -6,6 +6,12 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-11-07
+
+### Fixed
+
+- The status icon no longer draws over the screen while the Onion menu is paused, as when a game or tool started over SSH stops the menu and takes the screen.
+
 ## [1.0.3] - 2026-11-03
 
 ### Fixed
@@ -30,7 +36,8 @@ All notable changes are listed here. The format follows
 
 - The first release: login by QR code, devices with ping, exit nodes, subnet routes, Tailscale DNS and SSH, shields up, accounts, Taildrop, start at boot, SOCKS5 and HTTP proxies, `miniscale-fwd` port forwards and a status icon in the Onion menu, on Tailscale 1.104.4.
 
-[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/zakijss/MiniScale/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/zakijss/MiniScale/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/zakijss/MiniScale/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/zakijss/MiniScale/compare/v1.0.0...v1.0.1

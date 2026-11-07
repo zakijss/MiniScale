@@ -28,3 +28,23 @@ func TestGuardEvery(t *testing.T) {
 		}
 	}
 }
+
+func TestStoppedState(t *testing.T) {
+	for _, c := range []struct {
+		stat string
+		want bool
+	}{
+		{"733 (MainUI) S 1 733 733 0 -1", false},
+		{"733 (MainUI) T 1 733 733 0 -1", true},
+		{"733 (MainUI) t 1 733 733 0 -1", true},
+		{"733 (MainUI) R 1 733 733 0 -1", false},
+		{"9 (odd) T name) S 1 9 9", false}, // the last ")" ends the name
+		{"9 (odd) S name) T 1 9 9", true},
+		{"733 (MainUI)", false},
+		{"", false},
+	} {
+		if got := stoppedState([]byte(c.stat)); got != c.want {
+			t.Errorf("%q: got %v, want %v", c.stat, got, c.want)
+		}
+	}
+}
