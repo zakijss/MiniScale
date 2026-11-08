@@ -30,12 +30,12 @@ func (a *app) login(reauth bool) bool {
 			change["Hostname"], change["RunSSH"] = name, ssh
 		}
 		if _, err := a.api.EditPrefs(ctx, change); err != nil {
-			a.scr.Notice(a.input, "Couldn't start the login", err.Error())
+			a.scr.Notice(a.input, "Couldn't start the login", err.Error()+tryAgain)
 			return false
 		}
 	}
 	if err := a.api.LoginInteractive(ctx); err != nil {
-		a.scr.Notice(a.input, "Couldn't start the login", err.Error())
+		a.scr.Notice(a.input, "Couldn't start the login", err.Error()+tryAgain)
 		return false
 	}
 

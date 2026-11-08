@@ -424,9 +424,12 @@ func (a *app) setBoot(on bool) {
 		arg = "on"
 	}
 	if err := a.script("autostart", arg); err != nil {
-		a.scr.Notice(a.input, "Couldn't change starting at boot", err.Error())
+		a.scr.Notice(a.input, "Couldn't change starting at boot", err.Error()+tryAgain)
 	}
 }
+
+// tryAgain ends a notice whose error is raw, so it says what to do next.
+const tryAgain = "\n\nTry again."
 
 // noStateNotice explains why turning on leads to a new login.
 const noStateNotice = "This Miyoo can't open its saved login: the SD card was used in another Miyoo, or this one's device key was reset. Log in again with a QR code to rejoin your tailnet.\n\nThe old login is kept in the app's folder as state.enc.unreadable."
@@ -478,7 +481,7 @@ func (a *app) turnOff() {
 	})
 	switch {
 	case a.snap.state() != stOff:
-		msg := "tailscaled is still running"
+		msg := "tailscaled is still running." + tryAgain
 		if err != nil {
 			msg = err.Error()
 		}
@@ -488,14 +491,14 @@ func (a *app) turnOff() {
 		// stop ends everything even when the save fails
 		a.scr.Notice(a.input, "State not saved", "MiniScale is off, but it couldn't save its state on the SD card: a login or setting changed since the last save is lost.\n\nminiscale.log in the app's folder has the details.")
 	case bootErr != nil:
-		a.scr.Notice(a.input, "Couldn't change starting at boot", bootErr.Error())
+		a.scr.Notice(a.input, "Couldn't change starting at boot", bootErr.Error()+tryAgain)
 	}
 	a.note = "Off"
 }
 
 func (a *app) setPref(name string, v any, what string) {
 	if _, err := a.api.EditPrefs(context.Background(), map[string]any{name: v}); err != nil {
-		a.scr.Notice(a.input, "Couldn't change that", err.Error())
+		a.scr.Notice(a.input, "Couldn't change that", err.Error()+tryAgain)
 		return
 	}
 	a.saveState()
@@ -508,7 +511,7 @@ func (a *app) setPref(name string, v any, what string) {
 func (a *app) useExitNode(id string) {
 	change := map[string]any{"ExitNodeID": id, "ExitNodeIP": ""}
 	if _, err := a.api.EditPrefs(context.Background(), change); err != nil {
-		a.scr.Notice(a.input, "Couldn't change the exit node", err.Error())
+		a.scr.Notice(a.input, "Couldn't change the exit node", err.Error()+tryAgain)
 		return
 	}
 	a.saveState()
@@ -570,7 +573,7 @@ func (a *app) switchProfile(id string) {
 		return e
 	})
 	if err != nil {
-		a.scr.Notice(a.input, "Couldn't switch", err.Error())
+		a.scr.Notice(a.input, "Couldn't switch", err.Error()+tryAgain)
 		return
 	}
 	a.saveState()
@@ -596,7 +599,7 @@ func (a *app) addAccount() {
 		known[p.ID] = true
 	}
 	if err := a.api.NewProfile(context.Background()); err != nil {
-		a.scr.Notice(a.input, "Couldn't add an account", err.Error())
+		a.scr.Notice(a.input, "Couldn't add an account", err.Error()+tryAgain)
 		return
 	}
 	a.refresh()
@@ -661,7 +664,7 @@ func (a *app) logout() {
 		return e
 	})
 	if err != nil {
-		a.scr.Notice(a.input, "Couldn't log out", err.Error())
+		a.scr.Notice(a.input, "Couldn't log out", err.Error()+tryAgain)
 		return
 	}
 	a.setBoot(false) // nothing to join at boot
@@ -683,7 +686,7 @@ func (a *app) removeProfile() {
 		return
 	}
 	if err := a.api.DeleteProfile(context.Background(), r.id); err != nil {
-		a.scr.Notice(a.input, "Couldn't remove it", err.Error())
+		a.scr.Notice(a.input, "Couldn't remove it", err.Error()+tryAgain)
 		return
 	}
 	a.saveState()
@@ -731,7 +734,7 @@ func (a *app) subtitle() string {
 	case stStarting:
 		return "Starting…"
 	case stNeedsLogin:
-		return "Logged out"
+		return "Not logged in"
 	case stNeedsAuth:
 		return "Waiting for approval"
 	}
@@ -944,7 +947,7 @@ func (a *app) exitItems() []ui.Item {
 		}
 		it := ui.Item{Label: p.Name(), Sub: osName(p.OS), Icon: "server", Tint: ui.Good, Value: row{"exit", p.ID}}
 		if !p.Online {
-			it.Sub, it.Tint = "offline", ui.Faint
+			it.Sub, it.Tint = "Offline", ui.Faint
 		}
 		if a.snap.prefs != nil && a.snap.prefs.ExitNodeID == p.ID {
 			it.Detail = "in use"

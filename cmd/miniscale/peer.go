@@ -239,7 +239,7 @@ func (a *app) taildrop() {
 				if it := l.Selected(); it != nil && !ev.Repeat &&
 					s.Confirm(a.input, "Delete this file?", it.Label+" is removed without being saved.", "Delete") {
 					if err := a.api.DeleteFile(context.Background(), it.Label); err != nil {
-						s.Notice(a.input, "Couldn't delete it", err.Error())
+						s.Notice(a.input, "Couldn't delete it", err.Error()+tryAgain)
 					}
 					a.refresh()
 				}
