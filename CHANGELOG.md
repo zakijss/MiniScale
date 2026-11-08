@@ -6,6 +6,14 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-11-08
+
+### Changed
+
+- Error notices say to try again.
+- A logged-out account reads "Not logged in", and an offline device "Offline".
+- Grey and red small text is easier to read (MiniDeck 1.0.3).
+
 ## [1.0.4] - 2026-11-07
 
 ### Fixed
@@ -36,7 +44,8 @@ All notable changes are listed here. The format follows
 
 - The first release: login by QR code, devices with ping, exit nodes, subnet routes, Tailscale DNS and SSH, shields up, accounts, Taildrop, start at boot, SOCKS5 and HTTP proxies, `miniscale-fwd` port forwards and a status icon in the Onion menu, on Tailscale 1.104.4.
 
-[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/zakijss/MiniScale/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/zakijss/MiniScale/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/zakijss/MiniScale/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/zakijss/MiniScale/compare/v1.0.1...v1.0.2

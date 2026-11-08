@@ -3,7 +3,7 @@ module github.com/zakijss/miniscale
 go 1.27
 
 require (
-	github.com/zakijss/minideck v1.0.1
+	github.com/zakijss/minideck v1.0.3
 	golang.org/x/net v0.62.0
 )
 
