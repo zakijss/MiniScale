@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"image"
 	"os"
 	"path/filepath"
@@ -40,6 +41,12 @@ func TestScreens(t *testing.T) {
 	}
 	a := newApp("off")
 	a.snap = snapshot{}
+	a.draw()
+	a = newApp("notanswering")
+	a.snap = snapshot{err: errors.New("Get \"http://local-tailscaled.sock/localapi/v0/status\": context deadline exceeded")}
+	a.draw()
+	a = newApp("taildrop-note")
+	a.note = "2 files waiting: Settings › Taildrop"
 	a.draw()
 	a = newApp("loggedout")
 	a.snap.st.BackendState = "NeedsLogin"

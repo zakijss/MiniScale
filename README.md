@@ -12,14 +12,21 @@ An unofficial Tailscale client for the Miyoo Mini Plus. It puts the device on yo
 - Devices with their addresses, connection type and ping; exit nodes; subnet routes; Tailscale DNS and SSH; shields up; several accounts.
 - Taildrop: files sent to the Miyoo land in `Media/Taildrop`.
 - A status icon in the Onion menu.
-- Tailscale 1.104.4 built from source down to 18.9 MB, with its state on the card only encrypted, with a key kept in the device's own flash.
+- Tailscale 1.104.6 built from source down to 18.9 MB, with its state on the card only encrypted, with a key kept in the device's own flash.
 
 
 <p align="center"><img src="docs/desk.jpg" alt="A clear purple Miyoo Mini Plus on a stand showing a tailnet in MiniScale" width="100%"></p>
 
 ## Using it
 
-Open **Apps > MiniScale** and press **A**. **L1**/**R1** switch between Devices, Exit node, Settings and Account; **X** connects and disconnects.
+Open **Apps > MiniScale** and press **A**.
+
+- **L1**/**R1** switch between Devices, Exit node, Settings and Account; **L2**/**R2** jump to the top and the bottom of the list.
+- **A** opens a device, picks an exit node or changes a setting; on a device, **X** pings it and **Y** uses it as the exit node.
+- **X** connects and disconnects; **Y** on the Account tab removes another account.
+- **SELECT** changes the look. If Tailscale stops answering, **A** restarts it.
+
+The Devices tab counts how many devices are online, and files sent with Taildrop are announced at the top until the next press.
 
 The device has no TUN interface, so Tailscale runs in userspace mode and other programs reach the tailnet through it: through its SOCKS5 proxy (`127.0.0.1:1055`) or HTTP proxy (`127.0.0.1:1056`), as the MiniDeck apps do, or through a port forward for apps that can't use a proxy. List forwards in `App/MiniScale/forwards.conf`:
 

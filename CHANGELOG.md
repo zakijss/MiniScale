@@ -6,6 +6,17 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- L2 and R2 jump to the top and the bottom of a list.
+- The Devices tab shows how many devices are online, on this Miyoo's row.
+- Files arriving by Taildrop are announced at the top of the screen until the next press.
+- When Tailscale runs but doesn't answer, MiniScale says so instead of "Off", and A restarts it.
+
+### Changed
+
+- Tailscale 1.104.6, built with Go 1.27.4.
+
 ## [1.0.5] - 2026-11-08
 
 ### Changed

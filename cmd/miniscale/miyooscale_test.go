@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -353,5 +354,51 @@ func TestTaggedProfile(t *testing.T) {
 	p.UserProfile.LoginName = "alex@example.com"
 	if p.Tagged() || p.Login() != "alex@example.com" || p.About() != "alex@example.com" {
 		t.Errorf("person: %v %q %q", p.Tagged(), p.Login(), p.About())
+	}
+}
+
+// tailscaled running but not answering is restarted: start alone would
+// find it already running and do nothing.
+func TestTurnOnRestartsWhenNotAnswering(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	os.WriteFile(filepath.Join(dir, "miniscale.sh"), []byte(`echo "$1" >> "`+calls+`"`+"\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "state.enc"), []byte("sealed"), 0o644)
+	t.Setenv("MINIDECK_UI_PNG", filepath.Join(t.TempDir(), "f.png"))
+	scr, err := ui.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := make(chan ui.Event)
+	close(in)
+	a := &app{scr: scr, input: in, dir: dir, sock: filepath.Join(dir, "none")}
+	a.snap.err = errors.New("connection refused")
+	a.turnOn()
+	b, _ := os.ReadFile(calls)
+	if got := strings.Fields(string(b)); !slices.Equal(got, []string{"stop", "start"}) {
+		t.Errorf("miniscale.sh ran with %q, want stop then start", got)
+	}
+}
+
+func TestTaildropNote(t *testing.T) {
+	a := &app{}
+	a.take(snapshot{files: []WaitingFile{{Name: "a.txt"}}})
+	if a.note != "1 file waiting: Settings › Taildrop" {
+		t.Errorf("new file: note %q", a.note)
+	}
+	a.note = ""
+	a.take(snapshot{files: []WaitingFile{{Name: "a.txt"}}})
+	a.take(snapshot{})
+	if a.note != "" {
+		t.Errorf("no new file: note %q", a.note)
+	}
+}
+
+func TestOnlineCount(t *testing.T) {
+	f := startFake(t)
+	a := &app{api: newLocalAPI(f.sock), dir: t.TempDir(), sock: f.sock}
+	a.snap = a.fetch()
+	if it := a.deviceItems()[0]; it.Detail != "1 of 2 online" {
+		t.Errorf("this Miyoo's row: %q", it.Detail)
 	}
 }

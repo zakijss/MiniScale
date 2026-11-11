@@ -161,6 +161,11 @@ func (a *app) take(s snapshot) {
 	if s.gen < a.gen.Load() {
 		return
 	}
+	// Files arriving are easy to miss in Settings: say so until the next
+	// press.
+	if n := len(s.files); n > len(a.snap.files) {
+		a.note = plural(n, "file") + " waiting: Settings › Taildrop"
+	}
 	a.snap = s
 }
 
@@ -272,7 +277,14 @@ func (a *app) key(ev ui.Event) bool {
 		}
 	default:
 		l := &a.lists[a.tab]
-		l.Handle(ev)
+		switch ev.Button {
+		case ui.L2:
+			l.Sel = 0
+		case ui.R2:
+			l.Sel = max(0, len(l.Items)-1)
+		default:
+			l.Handle(ev)
+		}
 		if it := l.Selected(); it != nil {
 			a.selID[a.tab] = rowID(it)
 		}
@@ -440,12 +452,22 @@ func (a *app) turnOn() {
 	if err != nil {
 		how = "fresh" // never logged in: start empty, then log in
 	}
+	// tailscaled is running but not answering: start alone would find it
+	// already running, so stop it first.
+	restart := a.snap.err != nil
 	start := func() error {
+		if restart {
+			a.script("stop")
+		}
 		e := a.script(how)
 		a.refresh()
 		return e
 	}
-	err = a.busy("Turning on…", start)
+	what := "Turning on…"
+	if restart {
+		what = "Restarting…"
+	}
+	err = a.busy(what, start)
 	if how == "start" && isNoState(err) && a.snap.state() == stOff {
 		// Starting would fail the same way every time: start afresh
 		// instead (miniscale.sh keeps the old file aside) and log in.
@@ -730,6 +752,9 @@ func (a *app) subtitle() string {
 	s := a.snap
 	switch s.state() {
 	case stOff:
+		if s.err != nil {
+			return "Not answering"
+		}
 		return "Off"
 	case stStarting:
 		return "Starting…"
@@ -757,7 +782,11 @@ func (a *app) subtitle() string {
 func (a *app) hints() []ui.Hint {
 	switch a.snap.state() {
 	case stOff:
-		return []ui.Hint{{Button: "A", Label: "Turn on"}, ui.AppearanceHint, {Button: "B", Label: "Exit"}}
+		on := "Turn on"
+		if a.snap.err != nil {
+			on = "Restart"
+		}
+		return []ui.Hint{{Button: "A", Label: on}, ui.AppearanceHint, {Button: "B", Label: "Exit"}}
 	case stNeedsLogin, stNeedsAuth:
 		return []ui.Hint{{Button: "A", Label: "Log in"}, {Button: "Y", Label: "Account"}, {Button: "X", Label: "Turn off"}, ui.AppearanceHint, {Button: "B", Label: "Exit"}}
 	case stStarting:
@@ -783,6 +812,13 @@ func (a *app) draw() {
 	top := s.StaticFrame("MiniScale", ui.Fit(ui.Small, a.subtitle(), ui.W-60), a.hints()...)
 	switch a.snap.state() {
 	case stOff:
+		if a.snap.err != nil {
+			// the cause is at the end; the URL before it doesn't wrap
+			why := a.snap.err.Error()
+			why = strings.TrimSpace(why[strings.LastIndex(why, ": ")+1:])
+			a.card(top, "Tailscale isn't answering", "It may still be starting. If this stays, press A to restart it.\n\nThe error: "+why+".")
+			break
+		}
 		a.card(top, "MiniScale is off", "Turn it on to reach the devices on your tailnet from this Miyoo. The first time, you log in with a QR code.")
 	case stStarting:
 		s.Loading(top+120, "Starting…")
@@ -902,10 +938,20 @@ func appearanceRow() ui.Item {
 func (a *app) deviceItems() []ui.Item {
 	st := a.snap.st
 	var out []ui.Item
-	if self := st.Self; self != nil {
-		out = append(out, ui.Item{Label: self.Name() + " (this Miyoo)", Sub: strings.Join(self.TailscaleIPs, " · "), Icon: "star", Value: row{"self", ""}})
-	}
 	peers := sortedPeers(st)
+	if self := st.Self; self != nil {
+		it := ui.Item{Label: self.Name() + " (this Miyoo)", Sub: strings.Join(self.TailscaleIPs, " · "), Icon: "star", Value: row{"self", ""}}
+		if len(peers) > 0 {
+			on := 0
+			for _, p := range peers {
+				if p.Online {
+					on++
+				}
+			}
+			it.Detail = fmt.Sprintf("%d of %d online", on, len(peers))
+		}
+		out = append(out, it)
+	}
 	for _, p := range peers {
 		sub := []string{p.IPv4(), osName(p.OS)}
 		detail := ""

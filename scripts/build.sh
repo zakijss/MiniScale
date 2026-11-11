@@ -9,8 +9,8 @@ mkdir -p dist
 # Tailscale, from its pinned source, with everything MiniScale doesn't
 # use compiled out (it saves RAM and space). useexitnode, useroutes and
 # taildrop serve the exit node, subnet route and Taildrop options.
-TS_TAG=v1.104.4
-TS_COMMIT=27047635f237d1f3e0b08c0f487674757f30d2f7
+TS_TAG=v1.104.6
+TS_COMMIT=c54807352ae196919497b3f8fddc3cedf88368b9
 TS_FEATURES=netstack,nattraversal,udptransport,outboundproxy,bakedroots,dns,cli,ipnbus,health,ssh,qrcodes,useexitnode,useroutes,taildrop
 if [ ! -d build/tailscale ]; then
     git clone -q --depth 1 --branch "$TS_TAG" https://github.com/tailscale/tailscale.git build/tailscale
