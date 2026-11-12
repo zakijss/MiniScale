@@ -68,15 +68,21 @@ func (r *router) lookup(ctx context.Context, host string) ([]netip.Addr, error) 
 	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 }
 
-// fullTunnel reports whether a peer takes all IPv4 or all IPv6 traffic
-// (0.0.0.0/0 or ::/0).
+// fullTunnel reports whether the peers take all IPv4 or all IPv6
+// traffic, however it is written: 0.0.0.0/0, or the 0.0.0.0/1 and
+// 128.0.0.0/1 halves wg-quick users write to keep their default route.
+// Addresses from both ends of each space stand for the whole.
 func (r *router) fullTunnel() bool {
-	for _, p := range r.allowed {
-		if p.Bits() == 0 {
-			return true
+	all := func(ips ...string) bool {
+		for _, s := range ips {
+			if !r.viaTunnel(netip.MustParseAddr(s)) {
+				return false
+			}
 		}
+		return true
 	}
-	return false
+	return all("1.1.1.1", "100.64.0.1", "128.0.0.1", "223.255.255.254") ||
+		all("2001:4860::8888", "2606:4700::1111", "3fff:ffff::1")
 }
 
 // dial connects to a TCP HOST:PORT, trying each address of the host in

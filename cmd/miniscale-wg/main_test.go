@@ -365,7 +365,9 @@ PersistentKeepalive = 25
 func TestFullTunnelNoDNSFallback(t *testing.T) {
 	full := &router{allowed: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}}
 	split := &router{allowed: []netip.Prefix{netip.MustParsePrefix("10.8.0.0/24")}}
-	if !full.fullTunnel() || split.fullTunnel() {
+	halves := &router{allowed: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/1")}}
+	half := &router{allowed: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1")}}
+	if !full.fullTunnel() || !halves.fullTunnel() || split.fullTunnel() || half.fullTunnel() {
 		t.Fatal("fullTunnel")
 	}
 }

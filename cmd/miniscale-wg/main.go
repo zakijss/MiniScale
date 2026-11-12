@@ -153,6 +153,9 @@ func start(cfg *config) (*tunnel, error) {
 	for _, p := range cfg.peers {
 		r.allowed = append(r.allowed, p.allowedIPs...)
 	}
+	if r.fullTunnel() && !r.dns {
+		log.Printf("warning: everything goes through the tunnel but the config has no DNS: names are looked up with the local network's DNS, outside it")
+	}
 	return &tunnel{dev, r}, nil
 }
 
