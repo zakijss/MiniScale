@@ -6,6 +6,8 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-12
+
 ### Added
 
 - L2 and R2 jump to the top and the bottom of a list.
@@ -55,7 +57,8 @@ All notable changes are listed here. The format follows
 
 - The first release: login by QR code, devices with ping, exit nodes, subnet routes, Tailscale DNS and SSH, shields up, accounts, Taildrop, start at boot, SOCKS5 and HTTP proxies, `miniscale-fwd` port forwards and a status icon in the Onion menu, on Tailscale 1.104.4.
 
-[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/zakijss/MiniScale/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/zakijss/MiniScale/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/zakijss/MiniScale/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/zakijss/MiniScale/compare/v1.0.2...v1.0.3
