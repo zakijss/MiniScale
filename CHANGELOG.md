@@ -6,6 +6,8 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-12
+
 ### Added
 
 - Your own server: logging in or adding an account asks for Tailscale or your own server (Headscale or another Tailscale-compatible one), and the Account tab shows each account's server.
@@ -13,6 +15,10 @@ All notable changes are listed here. The format follows
 - NetBird, off by default: its client (0.82.1, built from source with its own root certificates) joins NetBird's cloud or your own server, logging in with a QR code or a setup key. Its state is kept encrypted with the device key. An HTTP proxy is put in front of its SOCKS5 one.
 - Settings > Network switches between Tailscale, WireGuard and NetBird (Y does too while MiniScale is off). Every login stays saved.
 - While WireGuard or NetBird runs, /tmp/miniscale/routes tells the MiniDeck apps (1.1 and later) what to send through the proxy.
+
+### Changed
+
+- The apps reach WireGuard and NetBird hosts through MiniScale (MiniDeck 1.1.0).
 
 ## [1.1.0] - 2026-11-12
 
@@ -65,7 +71,8 @@ All notable changes are listed here. The format follows
 
 - The first release: login by QR code, devices with ping, exit nodes, subnet routes, Tailscale DNS and SSH, shields up, accounts, Taildrop, start at boot, SOCKS5 and HTTP proxies, `miniscale-fwd` port forwards and a status icon in the Onion menu, on Tailscale 1.104.4.
 
-[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/zakijss/MiniScale/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/zakijss/MiniScale/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/zakijss/MiniScale/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/zakijss/MiniScale/compare/v1.0.3...v1.0.4
