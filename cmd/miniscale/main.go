@@ -47,9 +47,25 @@ func main() {
 	a := &app{scr: scr, input: ui.Input(), dir: appdir.Dir(), sock: filepath.Join(runDir(), "tailscaled.sock"),
 		snaps: make(chan snapshot, 1), kick: make(chan struct{}, 1)}
 	a.api = newLocalAPI(a.sock)
-	a.snap = a.fetchGen()
-	go a.poll()
-	a.run()
+	polling := false
+	for {
+		if networkOf(a.dir) == netWireGuard {
+			if !a.runWireGuard() {
+				return
+			}
+			continue
+		}
+		a.snap = a.fetchGen()
+		if !polling {
+			go a.poll()
+			polling = true
+		}
+		a.switching = false
+		a.run()
+		if !a.switching {
+			return
+		}
+	}
 }
 
 // snapshot is everything the screens show, read in one go.
@@ -84,6 +100,9 @@ type app struct {
 	lists [4]ui.List
 	selID [4]string // keeps the same row selected as lists change
 	note  string    // replaces the subtitle until the next press
+	// switching is set when the network changed to WireGuard: run returns
+	// and main shows the WireGuard screen
+	switching bool
 }
 
 const (
@@ -182,7 +201,7 @@ func (a *app) run() {
 				continue
 			}
 			a.note = ""
-			if !a.key(ev) {
+			if !a.key(ev) || a.switching {
 				return
 			}
 		case s := <-a.snaps:
@@ -237,8 +256,12 @@ func (a *app) key(ev ui.Event) bool {
 		return true
 	}
 	if st == stOff {
-		if ev.Button == ui.A && !ev.Repeat {
+		switch {
+		case ev.Repeat:
+		case ev.Button == ui.A:
 			a.turnOn()
+		case ev.Button == ui.Y:
+			a.switching = a.useWireGuard()
 		}
 		return true
 	}
@@ -350,6 +373,8 @@ func (a *app) activate() {
 		a.turnOff()
 	case "appearance":
 		a.scr.Appearance(a.input)
+	case "network":
+		a.switching = a.useWireGuard()
 	}
 }
 
@@ -800,7 +825,7 @@ func (a *app) hints() []ui.Hint {
 		if a.snap.err != nil {
 			on = "Restart"
 		}
-		return []ui.Hint{{Button: "A", Label: on}, ui.AppearanceHint, {Button: "B", Label: "Exit"}}
+		return []ui.Hint{{Button: "A", Label: on}, {Button: "Y", Label: "WireGuard"}, ui.AppearanceHint, {Button: "B", Label: "Exit"}}
 	case stNeedsLogin, stNeedsAuth:
 		return []ui.Hint{{Button: "A", Label: "Log in"}, {Button: "Y", Label: "Account"}, {Button: "X", Label: "Turn off"}, ui.AppearanceHint, {Button: "B", Label: "Exit"}}
 	case stStarting:
@@ -936,6 +961,7 @@ func (a *app) items(tab int) []ui.Item {
 			{Label: "Block incoming connections", Sub: "Shields up: nothing gets in", Detail: onOff(p.ShieldsUp), Value: row{"pref", "ShieldsUp"}},
 			{Label: "Device name", Sub: "How it shows in your tailnet", Detail: name, Value: row{"name", ""}, Chevron: true},
 			{Label: "Start at boot", Sub: "Join your tailnet at power-on", Detail: onOff(s.boot), Value: row{"boot", ""}},
+			{Label: "Network", Sub: "Switch to a plain WireGuard server", Detail: "Tailscale", Value: row{"network", ""}, Chevron: true},
 			{Label: "Taildrop", Sub: "Receive files into Media/Taildrop", Detail: files, Value: row{"files", ""}, Chevron: true},
 			{Label: "About", Sub: "Tailscale " + ver + " · MiniScale " + version.String(), Value: row{"about", ""}},
 			appearanceRow(),

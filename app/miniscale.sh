@@ -18,6 +18,10 @@
 #   miniscale.sh status
 #   miniscale.sh seal FILE  encrypt stdin (an app's secrets JSON) to FILE with
 #                          the device key; the plaintext never touches the card
+#   miniscale.sh network [tailscale|wireguard]   which network start joins
+#                          (stops the one running first); no argument prints it
+#   miniscale.sh wg-import FILE   encrypt a WireGuard config (wg-quick
+#                          format) to wireguard.enc with the device key
 #
 # The node state (private node key, Tailscale SSH host keys) is stored on the
 # SD card only encrypted (AES-256-CBC, PBKDF2) with a random key kept in the
@@ -46,7 +50,15 @@ NOSTATE=3
 BIN=$APP/bin/tailscaled
 FWD=$APP/bin/miniscale-fwd
 BADGEBIN=$APP/bin/miniscale-badge
+WGBIN=$APP/bin/miniscale-wg
 ENC=$APP/state.enc
+# WireGuard instead of Tailscale: the network file says which; the config
+# (with its private key) is kept only encrypted, like the Tailscale state,
+# and decrypted to RAM just long enough for miniscale-wg to read it.
+NETFILE=$APP/network
+WGENC=$APP/wireguard.enc
+WGMAGIC="MINISCALE-WG-V1"
+WGSOCK=$RUN/wg.sock
 AUTO=$APP/autostart
 CONF=$APP/miniscale.conf
 FWDCONF=$APP/forwards.conf
@@ -87,6 +99,7 @@ alive() {
         tailscaled) _want=tailscaled ;;
         fwd) _want=miniscale-fwd ;;
         badge) _want=miniscale-badge ;;
+        wg) _want=miniscale-wg ;;
         *) _want=miniscale.sh ;;
     esac
     case "$(tr '\0' ' ' < "/proc/$_pid/cmdline" 2>/dev/null)" in
@@ -94,7 +107,9 @@ alive() {
     esac
     return 1
 }
-running() { alive tailscaled; }
+network() { [ "$(cat "$NETFILE" 2>/dev/null)" = wireguard ] && echo wireguard || echo tailscale; }
+is_wg() { [ "$(network)" = wireguard ]; }
+running() { if is_wg; then alive wg; else alive tailscaled; fi; }
 backend() { ts status --json 2>/dev/null | sed -n 's/.*"BackendState": *"\([A-Za-z]*\)".*/\1/p' | head -1; }
 # Logs stay small: miniscale.log on the card starts afresh past 64 KB (the
 # previous one kept as .old); the daemons' logs live in RAM (/tmp), so the
@@ -243,6 +258,7 @@ cmd_start() {
 
 do_start() {
     running && { note "already running"; return 0; }
+    is_wg && { wg_start; return; }
     kill_orphans
     [ -f "$ENC" ] || { note "not logged in yet: open the app to log in"; return 1; }
     [ -s "$DEVKEY" ] || { note "device key missing ($DEVKEY): log in again"; return $NOSTATE; }
@@ -266,12 +282,13 @@ cmd_stop() {
 # Fails when the state couldn't be saved, though everything is stopped.
 do_stop() {
     _saved=0
-    if running; then
+    if alive tailscaled; then
         save_state || { note "warning: state not saved"; _saved=1; }
     fi
-    for d in saver badge fwd tailscaled; do alive $d && kill "$(pid_of $d)" 2>/dev/null; done
-    i=0; while running && [ $i -lt 50 ]; do usleep 200000; i=$((i+1)); done
-    running && kill -9 "$(pid_of tailscaled)" 2>/dev/null
+    for d in saver badge fwd tailscaled wg; do alive $d && kill "$(pid_of $d)" 2>/dev/null; done
+    i=0; while { alive tailscaled || alive wg; } && [ $i -lt 50 ]; do usleep 200000; i=$((i+1)); done
+    alive tailscaled && kill -9 "$(pid_of tailscaled)" 2>/dev/null
+    alive wg && kill -9 "$(pid_of wg)" 2>/dev/null
     kill_orphans
     rm -rf "$RUN"
     note "stopped"
@@ -329,6 +346,7 @@ cmd_fresh() {
 }
 
 cmd_save() {
+    is_wg && return 0 # nothing changes while it runs: the config is saved on import
     running || return 1
     lock 30 || return 1
     save_state; rc=$?
@@ -351,7 +369,9 @@ cmd_toggle() {
         rm -f "$AUTO"; sync
         cmd_stop
         panel "OFF (won't start at boot)"
-    elif [ ! -f "$ENC" ] || [ ! -s "$DEVKEY" ]; then
+    elif is_wg && [ ! -f "$WGENC" ]; then
+        panel "No WireGuard config yet: open MiniScale to import one"
+    elif ! is_wg && { [ ! -f "$ENC" ] || [ ! -s "$DEVKEY" ]; }; then
         st -q -e sh -c "sh '$APP/miniscale.sh' login; printf '\nPress START to close.'; read _"
     elif [ -d "$LOCK" ]; then
         # The boot hook is starting it right now: wait for that instead.
@@ -359,7 +379,7 @@ cmd_toggle() {
         panel_pid=$!
         lock 120 && unlock
         kill -9 "$panel_pid" 2>/dev/null
-        if running; then panel "ON: $(ts ip -4 2>/dev/null)"; else panel "Failed to start: see miniscale.log"; fi
+        if running; then panel "ON"; else panel "Failed to start: see miniscale.log"; fi
     else
         touch "$AUTO"; sync
         infoPanel -t "MiniScale" -m "Starting..." --persistent >/dev/null 2>&1 &
@@ -367,7 +387,7 @@ cmd_toggle() {
         cmd_start; rc=$?
         kill -9 "$panel_pid" 2>/dev/null
         if [ $rc -eq 0 ]; then
-            panel "ON: $(ts ip -4 2>/dev/null)"
+            panel "ON: $(is_wg && echo WireGuard || ts ip -4 2>/dev/null)"
         elif [ $rc -eq $NOSTATE ]; then
             panel "This Miyoo can't open the saved login: log in again"
             st -q -e sh -c "sh '$APP/miniscale.sh' login; printf '\nPress START to close.'; read _"
@@ -404,7 +424,9 @@ cmd_seal() {
 }
 
 cmd_status() {
-    if running; then
+    if running && is_wg; then
+        echo "running: WireGuard"
+    elif running; then
         echo "running: $(backend) $(ts ip -4 2>/dev/null)"
         alive fwd && echo "forwarder: on ($(grep -c '^[[:space:]]*[0-9]' "$FWDCONF") ports)"
     else
@@ -413,7 +435,78 @@ cmd_status() {
     [ -f "$AUTO" ] && echo "autostart: on" || echo "autostart: off"
 }
 
+# ---- WireGuard ----
+
+# The config, decrypted to RAM, with its magic line checked: a file sealed
+# for something else, or by another device, isn't taken for a config.
+wg_open() { # $1 = output file
+    [ -f "$WGENC" ] && [ -s "$DEVKEY" ] || return 1
+    "$OSSL" enc -d -aes-256-cbc -pbkdf2 -iter $ITER -pass "file:$DEVKEY" -in "$WGENC" -out "$1.d" 2>/dev/null \
+        && [ "$(head -n 1 "$1.d")" = "$WGMAGIC" ] && tail -n +2 "$1.d" > "$1"
+    _rc=$?
+    rm -f "$1.d"
+    return $_rc
+}
+
+wg_start() {
+    [ -f "$WGENC" ] || { note "no WireGuard config yet: import one in the app"; return 1; }
+    [ -x "$WGBIN" ] || { note "miniscale-wg is missing: update MiniScale"; return 1; }
+    mkdir -p "$RUN" && chmod 700 "$RUN"
+    umask 077
+    wg_open "$RUN/wg.conf" || { note "could not decrypt the WireGuard config (different device?): import it again"; rm -rf "$RUN"; return $NOSTATE; }
+    : > "$RUN/wg.log"; : > "$RUN/fwd.log"
+    rm -f "$WGSOCK"
+    setsid nohup "$WGBIN" -conf "$RUN/wg.conf" -socks "127.0.0.1:$SOCKS_PORT" \
+        -http "127.0.0.1:$HTTP_PROXY_PORT" -status "$WGSOCK" >> "$RUN/wg.log" 2>&1 &
+    echo $! > "$RUN/wg.pid"
+    i=0; while [ ! -S "$WGSOCK" ] && alive wg && [ $i -lt 100 ]; do usleep 200000; i=$((i+1)); done
+    # read once at start: the private key leaves RAM too
+    rm -f "$RUN/wg.conf"
+    if ! alive wg; then
+        note "WireGuard didn't start: $(tail -n 1 "$RUN/wg.log" 2>/dev/null)"
+        return 1
+    fi
+    if [ -f "$FWDCONF" ] && grep -q '^[[:space:]]*[0-9]' "$FWDCONF"; then
+        setsid nohup "$FWD" -c "$FWDCONF" -socks "127.0.0.1:$SOCKS_PORT" >> "$RUN/fwd.log" 2>&1 &
+        echo $! > "$RUN/fwd.pid"
+    fi
+    note "started: WireGuard"
+}
+
+cmd_wg_import() {
+    src=${1:?usage: miniscale.sh wg-import FILE}
+    grep -qi '^[[:space:]]*\[Interface\]' "$src" && grep -qi '^[[:space:]]*PrivateKey' "$src" \
+        || { echo "That isn't a WireGuard config: it needs an [Interface] with a PrivateKey."; return 2; }
+    ensure_devkey || { echo "Could not create the device key."; return 1; }
+    mkdir -p "$RUN" && chmod 700 "$RUN"
+    umask 077
+    _plain="$RUN/wgimp.$$" _check="$RUN/wgchk.$$"
+    { echo "$WGMAGIC" && tr -d '\r' < "$src"; } > "$_plain" \
+        && "$OSSL" enc -aes-256-cbc -pbkdf2 -iter $ITER -salt -pass "file:$DEVKEY" -in "$_plain" -out "$WGENC.tmp" 2>/dev/null \
+        && "$OSSL" enc -d -aes-256-cbc -pbkdf2 -iter $ITER -pass "file:$DEVKEY" -in "$WGENC.tmp" -out "$_check" 2>/dev/null \
+        && cmp -s "$_plain" "$_check" && mv -f "$WGENC.tmp" "$WGENC" && sync
+    _rc=$?
+    rm -f "$_plain" "$_check" "$WGENC.tmp"
+    [ $_rc -eq 0 ] || { echo "Could not save the encrypted config."; return 1; }
+    note "WireGuard config imported"
+}
+
+cmd_network() {
+    case "$1" in
+        "") network; return 0 ;;
+        tailscale|wireguard) ;;
+        *) echo "usage: miniscale.sh network [tailscale|wireguard]"; return 2 ;;
+    esac
+    [ "$(network)" = "$1" ] && return 0
+    if alive tailscaled || alive wg; then cmd_stop >/dev/null || true; fi
+    if [ "$1" = wireguard ]; then echo wireguard > "$NETFILE"; else rm -f "$NETFILE"; fi
+    sync
+    note "network: $1"
+}
+
 case "$1" in
+    network) cmd_network "$2" ;;
+    wg-import) cmd_wg_import "$2" ;;
     toggle) cmd_toggle ;;
     start)  cmd_start ;;
     fresh)  cmd_fresh ;;
@@ -425,5 +518,5 @@ case "$1" in
     saver)  cmd_saver ;;
     status) cmd_status ;;
     seal)   cmd_seal "$2" ;;
-    *) echo "usage: $0 toggle|start|fresh|save|autostart [on|off]|stop|login|boot|status|seal FILE"; exit 2 ;;
+    *) echo "usage: $0 toggle|start|fresh|save|autostart [on|off]|stop|login|boot|status|seal FILE|network [tailscale|wireguard]|wg-import FILE"; exit 2 ;;
 esac

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/zakijss/minideck/qr"
 	"github.com/zakijss/minideck/ui"
@@ -58,6 +59,23 @@ func TestScreens(t *testing.T) {
 	a = newApp("login")
 	code, _ := qr.Encode("https://login.tailscale.com/a/1a2b3c4d5e6f7a")
 	a.drawLogin("https://login.tailscale.com/a/1a2b3c4d5e6f7a", code, true)
+	a = newApp("login-headscale")
+	a.loginHost = "hs.example.com"
+	hs := "https://hs.example.com/register/mkey:1a2b3c4d5e6f7a8b9c0d"
+	code, _ = qr.Encode(hs)
+	a.drawLogin(hs, code, false)
+	now := time.Now()
+	wgst := &wgStatus{Up: true, Addresses: []string{"10.8.0.2/32"}, Peers: []wgPeer{{Endpoint: "203.0.113.7:51820",
+		LastHandshake: now.Add(-40 * time.Second).Unix(), Rx: 48 << 20, Tx: 3 << 20}}}
+	for name, c := range map[string]struct {
+		st       *wgStatus
+		imported bool
+	}{"wireguard": {wgst, true}, "wireguard-off": {nil, true}, "wireguard-empty": {nil, false}} {
+		a = newApp(name)
+		var wl ui.List
+		wl.Items = wgItems(c.st, c.imported, true, now)
+		a.drawWG(&wl, c.st, c.imported)
+	}
 	a = newApp("peer")
 	st, _ := api.Status(context.Background())
 	var l ui.List

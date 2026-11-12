@@ -91,5 +91,30 @@ check "lock while held fails after the wait" '[ $rc -ne 0 ] && [ $((t1 - t0)) -l
 kill $holder; wait $holder 2>/dev/null
 lock 0; check "a dead holder's lock is taken over" '[ $? -eq 0 ]'; unlock
 
+# 10. WireGuard: a config is imported encrypted, opens again only with
+# the magic line, and something that isn't one is refused
+printf '[Interface]\r\nPrivateKey = aaaa\r\nAddress = 10.0.0.2/32\r\n[Peer]\r\nPublicKey = bbbb\r\n' > "$T/wg0.conf"
+cmd_wg_import "$T/wg0.conf" >/dev/null; rc=$?
+check "wg-import succeeds" '[ $rc -eq 0 ] && [ -f "$WGENC" ] && [ ! -e "$WGENC.tmp" ]'
+check "wg-import keeps no plain copy" '! grep -q aaaa "$WGENC" && [ -z "$(ls "$RUN" | grep wgimp)" ]'
+wg_open "$T/out.conf"; rc=$?
+check "wg_open gives the config back, without CRs" '[ $rc -eq 0 ] && grep -q "^PrivateKey = aaaa$" "$T/out.conf" && ! grep -q "$(printf "\r")" "$T/out.conf"'
+echo "not a config" > "$T/bad.conf"
+before=$(md5sum < "$WGENC")
+cmd_wg_import "$T/bad.conf" >/dev/null; rc=$?
+check "wg-import refuses a non-config" '[ $rc -eq 2 ] && [ "$(md5sum < "$WGENC")" = "$before" ]'
+cp "$ENC" "$WGENC" # sealed with the same key, but not a WireGuard config
+wg_open "$T/out2.conf"; rc=$?
+check "wg_open refuses another sealed file" '[ $rc -ne 0 ] && [ ! -e "$T/out2.conf.d" ]'
+
+# 11. the network switch
+check "network defaults to tailscale" '[ "$(cmd_network)" = tailscale ]'
+cmd_network wireguard >/dev/null
+check "network switches to wireguard" '[ "$(cmd_network)" = wireguard ] && is_wg'
+cmd_network tailscale >/dev/null
+check "network switches back" '[ "$(cmd_network)" = tailscale ] && [ ! -e "$NETFILE" ]'
+cmd_network bogus >/dev/null; rc=$?
+check "network refuses others" '[ $rc -eq 2 ]'
+
 rm -rf "$T"
 exit $fail
