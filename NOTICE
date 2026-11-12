@@ -7,6 +7,21 @@ bin/tailscaled is built from its source with optional features compiled
 out; scripts/build.sh pins the tag and commit. Tailscale is a trademark of
 Tailscale Inc; this project is not affiliated with or endorsed by it.
 
+bin/netbird compiles in:
+
+- NetBird's client (https://github.com/netbirdio/netbird), copyright
+  NetBird GmbH & AUTHORS, BSD 3-Clause licence (licenses/netbird-LICENSE).
+  Only the client is built; it compiles in none of the repository's
+  AGPL-licensed directories (management/, signal/, relay/, combined/).
+  scripts/build.sh pins the tag and commit, and adds one file that links
+  in golang.org/x/crypto/x509roots/fallback (licenses/golang-x-crypto-LICENSE).
+  NetBird is a trademark of NetBird GmbH; this project is not affiliated
+  with or endorsed by it.
+- The Go modules NetBird's client depends on, each under its own licence
+  (MIT, BSD, Apache 2.0, MPL 2.0 and the like); `go version -m bin/netbird`
+  lists them with their versions, and NetBird's go.mod at the pinned
+  commit names them.
+
 bin/miniscale-wg compiles in:
 
 - wireguard-go (https://git.zx2c4.com/wireguard-go), copyright WireGuard
