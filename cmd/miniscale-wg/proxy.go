@@ -42,7 +42,9 @@ func (r *router) viaTunnel(ip netip.Addr) bool {
 }
 
 // lookup resolves host with the tunnel's DNS when there is one, and the
-// system's when not or when it fails (a name only the LAN knows).
+// system's when not. A split tunnel falls back to the system's when the
+// tunnel's fails (a name only the LAN knows); a full tunnel doesn't, as
+// that would send the name to the local network, outside the tunnel.
 func (r *router) lookup(ctx context.Context, host string) ([]netip.Addr, error) {
 	if ip, err := netip.ParseAddr(host); err == nil {
 		return []netip.Addr{ip}, nil
@@ -59,8 +61,22 @@ func (r *router) lookup(ctx context.Context, host string) ([]netip.Addr, error) 
 				return out, nil
 			}
 		}
+		if r.fullTunnel() {
+			return nil, &net.DNSError{Err: "no answer from the tunnel's DNS", Name: host, IsNotFound: true}
+		}
 	}
 	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+}
+
+// fullTunnel reports whether a peer takes all IPv4 or all IPv6 traffic
+// (0.0.0.0/0 or ::/0).
+func (r *router) fullTunnel() bool {
+	for _, p := range r.allowed {
+		if p.Bits() == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // dial connects to a TCP HOST:PORT, trying each address of the host in

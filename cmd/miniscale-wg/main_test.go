@@ -359,3 +359,13 @@ PersistentKeepalive = 25
 		t.Error("status shows the private key")
 	}
 }
+
+// A full tunnel never asks the local network's DNS: that would show the
+// names looked up outside the tunnel.
+func TestFullTunnelNoDNSFallback(t *testing.T) {
+	full := &router{allowed: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}}
+	split := &router{allowed: []netip.Prefix{netip.MustParsePrefix("10.8.0.0/24")}}
+	if !full.fullTunnel() || split.fullTunnel() {
+		t.Fatal("fullTunnel")
+	}
+}

@@ -49,7 +49,7 @@ For a plain WireGuard server (a router, wg-easy, a VPS), MiniScale runs WireGuar
 2. Copy it to the top of the SD card or to `App/MiniScale`, or send it with Taildrop.
 3. In MiniScale, choose **Settings > Network** (or **Y** while MiniScale is off), then **Import a config**, and connect.
 
-MiniScale keeps the config encrypted with the device key, like the Tailscale login, and offers to remove the plain file, which holds the private key. Connections to the addresses in a peer's `AllowedIPs` go through WireGuard and the rest go out directly, so a full-tunnel config (`0.0.0.0/0`) sends everything through your server. Only TCP goes through the proxies. **Use Tailscale instead** on the WireGuard screen switches back; both logins stay saved.
+MiniScale keeps the config encrypted with the device key, like the Tailscale login, and offers to remove the plain file, which holds the private key. Connections to the addresses in a peer's `AllowedIPs` go through WireGuard and the rest go out directly, so a full-tunnel config (`0.0.0.0/0`) sends everything through your server, names looked up included. Only TCP goes through the proxies. **Use Tailscale instead** on the WireGuard screen switches back; both logins stay saved.
 
 MiniScale is not made or supported by Tailscale Inc.
 
