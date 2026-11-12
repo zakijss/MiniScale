@@ -9,7 +9,10 @@ All notable changes are listed here. The format follows
 ### Added
 
 - Your own server: logging in or adding an account asks for Tailscale or your own server (Headscale or another Tailscale-compatible one), and the Account tab shows each account's server.
-- WireGuard: connect to a plain WireGuard server from a `.conf` file, through the same SOCKS5 and HTTP proxies, so the other apps work unchanged. The config is kept encrypted with the device key. Settings > Network switches, and Y does too while MiniScale is off.
+- WireGuard: connect to a plain WireGuard server from a `.conf` file, through the same SOCKS5 and HTTP proxies. The config is kept encrypted with the device key.
+- NetBird, off by default: its client (0.82.1, built from source with its own root certificates) joins NetBird's cloud or your own server, logging in with a QR code or a setup key. Its state is kept encrypted with the device key. An HTTP proxy is put in front of its SOCKS5 one.
+- Settings > Network switches between Tailscale, WireGuard and NetBird (Y does too while MiniScale is off). Every login stays saved.
+- While WireGuard or NetBird runs, /tmp/miniscale/routes tells the MiniDeck apps (1.1 and later) what to send through the proxy.
 
 ## [1.1.0] - 2026-11-12
 
