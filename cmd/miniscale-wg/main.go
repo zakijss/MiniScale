@@ -8,7 +8,12 @@
 // through the tunnel, the rest straight out, so split and full tunnels both
 // work. Only TCP is proxied.
 //
-//	miniscale-wg -conf wg0.conf [-socks ADDR] [-http ADDR] [-status SOCKET]
+// With -via-socks there is no tunnel: only the HTTP proxy runs, dialling
+// through a SOCKS5 proxy someone else serves. NetBird's client offers
+// SOCKS5 only; this gives apps that speak HTTP proxy a way in too.
+//
+//	miniscale-wg -conf wg0.conf [-socks ADDR] [-http ADDR] [-status SOCKET] [-routes PATH]
+//	miniscale-wg -via-socks ADDR [-http ADDR]
 package main
 
 import (
@@ -31,6 +36,7 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/net/proxy"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
@@ -45,6 +51,8 @@ func main() {
 	socks := flag.String("socks", "127.0.0.1:1055", "SOCKS5 proxy address (loopback)")
 	httpAddr := flag.String("http", "127.0.0.1:1056", "HTTP proxy address (loopback)")
 	status := flag.String("status", "", "unix socket for GET /status (optional)")
+	routes := flag.String("routes", "", "file listing what to send through the proxies, for the apps (optional)")
+	viaSocks := flag.String("via-socks", "", "no tunnel: serve only the HTTP proxy, through this SOCKS5 proxy (loopback)")
 	flag.Parse()
 	debug.SetGCPercent(50) // small heap: collect earlier than Go's default
 
@@ -53,8 +61,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, "miniscale-wg:", err)
 		os.Exit(2)
 	}
-	if *conf == "" {
-		fail(errors.New("-conf is required"))
+	if (*conf == "") == (*viaSocks == "") {
+		fail(errors.New("give one of -conf and -via-socks"))
+	}
+	if *viaSocks != "" {
+		if err := serveViaSOCKS(*viaSocks, *httpAddr); err != nil {
+			fail(err)
+		}
+		return
 	}
 	for _, a := range []string{*socks, *httpAddr} {
 		if !loopback(a) {
@@ -84,7 +98,7 @@ func main() {
 	go resolveEndpoints(ctx, t.dev, cfg)
 
 	go serveSOCKS(sl, t.router)
-	hs := &http.Server{Handler: httpProxy(t.router), ReadHeaderTimeout: dialTimeout}
+	hs := &http.Server{Handler: httpProxy(t.router.dial), ReadHeaderTimeout: dialTimeout}
 	go hs.Serve(hl)
 	var ss *http.Server
 	if *status != "" {
@@ -96,6 +110,13 @@ func main() {
 		ss = &http.Server{Handler: statusHandler(t.dev, cfg), ReadHeaderTimeout: 5 * time.Second}
 		go ss.Serve(ul)
 	}
+	if *routes != "" {
+		if err := writeRoutes(*routes, t.router.allowed); err != nil {
+			log.Printf("routes: %v", err) // the proxies work without it
+		} else {
+			defer os.Remove(*routes)
+		}
+	}
 	log.Printf("up: %d peer(s), SOCKS5 %s, HTTP %s", len(cfg.peers), *socks, *httpAddr)
 
 	<-ctx.Done()
@@ -106,6 +127,90 @@ func main() {
 	}
 	t.dev.Close()
 	log.Print("stopped")
+}
+
+// serveViaSOCKS runs only the HTTP proxy, every connection dialled through
+// the SOCKS5 proxy at upstream, until SIGTERM or SIGINT. The upstream owns
+// the SOCKS port, so it isn't listened on here.
+func serveViaSOCKS(upstream, httpAddr string) error {
+	for _, a := range []string{upstream, httpAddr} {
+		if !loopback(a) {
+			return fmt.Errorf("%s: proxies listen on loopback only", a)
+		}
+	}
+	h := viaSOCKS(upstream)
+	hl, err := net.Listen("tcp", httpAddr)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	hs := &http.Server{Handler: h, ReadHeaderTimeout: dialTimeout}
+	go hs.Serve(hl)
+	log.Printf("up: HTTP %s via SOCKS5 %s", httpAddr, upstream)
+	<-ctx.Done()
+	hs.Close()
+	log.Print("stopped")
+	return nil
+}
+
+// viaSOCKS is the HTTP proxy dialling through the SOCKS5 proxy at upstream.
+// Names go to it unresolved: it knows the tunnel's DNS.
+func viaSOCKS(upstream string) http.Handler {
+	nd := &net.Dialer{Timeout: dialTimeout}
+	return httpProxy(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		// x/net's SOCKS conn has no CloseWrite, so pipe's half-close would
+		// close it whole and lose the reply. After the handshake it's the
+		// TCP conn underneath, unbuffered: hand that over instead.
+		var raw net.Conn
+		fwd := dialFunc(func(ctx context.Context, network, addr string) (net.Conn, error) {
+			c, err := nd.DialContext(ctx, network, addr)
+			raw = c
+			return c, err
+		})
+		d, err := proxy.SOCKS5("tcp", upstream, nil, fwd)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := d.(proxy.ContextDialer).DialContext(ctx, network, addr); err != nil {
+			return nil, err
+		}
+		return raw, nil
+	})
+}
+
+// dialFunc is a dial function as the proxy.Dialer x/net wants.
+type dialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
+
+func (f dialFunc) Dial(network, addr string) (net.Conn, error) {
+	return f(context.Background(), network, addr)
+}
+
+func (f dialFunc) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return f(ctx, network, addr)
+}
+
+// writeRoutes tells the apps what to send through the proxies: each
+// AllowedIPs prefix, then "*" for every host name, since names are looked
+// up with the tunnel's DNS and routed here. Written whole then renamed, so
+// a reader never sees half a file.
+func writeRoutes(path string, allowed []netip.Prefix) error {
+	var b strings.Builder
+	b.WriteString("# written by miniscale-wg; read by MiniDeck apps\n")
+	for _, p := range allowed {
+		fmt.Fprintf(&b, "%s\n", p)
+	}
+	b.WriteString("*\n")
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
+		return err
+	}
+	os.Chmod(tmp, 0o644) // WriteFile's mode is cut by the umask, and other apps read this
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // loopback reports whether a listen address is on the loopback interface.

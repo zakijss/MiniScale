@@ -7,13 +7,20 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -219,7 +226,7 @@ func TestSOCKS(t *testing.T) {
 func TestHTTPConnect(t *testing.T) {
 	echo := echoServer(t)
 	ln := listen(t)
-	go http.Serve(ln, httpProxy(&router{}))
+	go http.Serve(ln, httpProxy((&router{}).dial))
 
 	c, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {
@@ -369,5 +376,163 @@ func TestFullTunnelNoDNSFallback(t *testing.T) {
 	half := &router{allowed: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1")}}
 	if !full.fullTunnel() || !halves.fullTunnel() || split.fullTunnel() || half.fullTunnel() {
 		t.Fatal("fullTunnel")
+	}
+}
+
+// TestMain lets a test run main itself, in a child process, to see the
+// flags, the exit codes and what's left behind on SIGTERM.
+func TestMain(m *testing.M) {
+	if os.Getenv("MINISCALE_WG_MAIN") == "1" {
+		main()
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+func runMain(t *testing.T, args ...string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], args...)
+	cmd.Env = append(os.Environ(), "MINISCALE_WG_MAIN=1")
+	return cmd
+}
+
+func TestFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{},
+		{"-conf", "x.conf", "-via-socks", "127.0.0.1:1055"},
+		{"-via-socks", "192.0.2.1:1055"},
+	} {
+		out, err := runMain(t, args...).CombinedOutput()
+		var ee *exec.ExitError
+		// the last line is the message (the version note comes first)
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		if !errors.As(err, &ee) || ee.ExitCode() != 2 || !strings.HasPrefix(lines[len(lines)-1], "miniscale-wg: ") {
+			t.Errorf("%q: %v %q", args, err, out)
+		}
+	}
+}
+
+func TestRoutesFile(t *testing.T) {
+	priv, _ := key(t)
+	_, pub := key(t)
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "wg0.conf")
+	os.WriteFile(conf, []byte(`[Interface]
+PrivateKey = `+priv+`
+Address = 10.8.0.2/32
+[Peer]
+PublicKey = `+pub+`
+Endpoint = 127.0.0.1:9
+AllowedIPs = 10.8.0.0/24, 192.168.5.7
+[Peer]
+PublicKey = `+k2+`
+AllowedIPs = 0.0.0.0/0
+`), 0o600)
+	routes := filepath.Join(dir, "routes")
+	cmd := runMain(t, "-conf", conf, "-socks", "127.0.0.1:0", "-http", "127.0.0.1:0", "-routes", routes)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Process.Kill()
+	var got []byte
+	for i := 0; i < 100 && got == nil; i++ {
+		time.Sleep(50 * time.Millisecond)
+		got, _ = os.ReadFile(routes)
+	}
+	want := "# written by miniscale-wg; read by MiniDeck apps\n10.8.0.0/24\n192.168.5.7/32\n0.0.0.0/0\n*\n"
+	if string(got) != want {
+		t.Errorf("routes file %q, want %q", got, want)
+	}
+	if fi, err := os.Stat(routes); err != nil || fi.Mode().Perm() != 0o644 {
+		t.Errorf("routes file mode: %v %v", fi, err)
+	}
+	cmd.Process.Signal(syscall.SIGTERM)
+	if err := cmd.Wait(); err != nil {
+		t.Errorf("exit: %v", err)
+	}
+	if _, err := os.Stat(routes); !os.IsNotExist(err) {
+		t.Errorf("routes file left after SIGTERM: %v", err)
+	}
+	if _, err := os.Stat(routes + ".tmp"); !os.IsNotExist(err) {
+		t.Errorf("tmp file left: %v", err)
+	}
+}
+
+// recordConn keeps what the client sent, to see the SOCKS request.
+type recordConn struct {
+	net.Conn
+	mu  *sync.Mutex
+	got *[]byte
+}
+
+func (c recordConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	c.mu.Lock()
+	*c.got = append(*c.got, p[:n]...)
+	c.mu.Unlock()
+	return n, err
+}
+
+type recordListener struct {
+	net.Listener
+	mu  sync.Mutex
+	got []byte
+}
+
+func (l *recordListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return recordConn{c, &l.mu, &l.got}, nil
+}
+
+func (l *recordListener) sent() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return string(l.got)
+}
+
+// TestViaSOCKS puts the HTTP proxy in front of serveSOCKS, as it goes in
+// front of NetBird's SOCKS5 proxy.
+func TestViaSOCKS(t *testing.T) {
+	echo := echoServer(t)
+	up := &recordListener{Listener: listen(t)}
+	go serveSOCKS(up, &router{})
+	h := viaSOCKS(up.Addr().String())
+	ln := listen(t)
+	go http.Serve(ln, h)
+
+	// CONNECT, by name: the name has to reach the SOCKS server as one
+	_, port, _ := net.SplitHostPort(echo)
+	target := net.JoinHostPort("localhost", port)
+	c, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	fmt.Fprintf(c, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
+	resp, err := http.ReadResponse(bufio.NewReader(c), nil)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("CONNECT: %v %v", resp, err)
+	}
+	roundTrip(t, c)
+	if s := up.sent(); !strings.Contains(s, "\x03\x09localhost") {
+		t.Errorf("the SOCKS server didn't get the name: %q", s)
+	}
+
+	// a plain absolute-form request
+	srv := listen(t)
+	go http.Serve(srv, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "plain "+r.URL.Path) }))
+	purl, _ := url.Parse("http://" + ln.Addr().String())
+	cl := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{Proxy: http.ProxyURL(purl)}}
+	res, err := cl.Get("http://" + srv.Addr().String() + "/y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if string(body) != "plain /y" {
+		t.Errorf("plain: %q", body)
 	}
 }

@@ -228,12 +228,13 @@ func socksCode(err error) byte {
 }
 
 // httpProxy serves CONNECT tunnels and plain absolute-form requests
-// ("GET http://host/path"), both dialled through r.
-func httpProxy(r *router) http.Handler {
+// ("GET http://host/path"), both dialled with dial: the router's, or a
+// SOCKS5 upstream's.
+func httpProxy(dial func(ctx context.Context, network, addr string) (net.Conn, error)) http.Handler {
 	fwd := &httputil.ReverseProxy{
 		Rewrite: func(*httputil.ProxyRequest) {}, // the URL is already absolute
 		Transport: &http.Transport{
-			DialContext:         r.dial,
+			DialContext:         dial,
 			MaxIdleConns:        4, // memory is short on the device
 			IdleConnTimeout:     30 * time.Second,
 			TLSHandshakeTimeout: dialTimeout,
@@ -249,7 +250,7 @@ func httpProxy(r *router) http.Handler {
 			return
 		}
 		ctx, cancel := context.WithTimeout(req.Context(), dialTimeout)
-		rc, err := r.dial(ctx, "tcp", req.Host)
+		rc, err := dial(ctx, "tcp", req.Host)
 		cancel()
 		if err != nil {
 			log.Printf("connect %s: %v", req.Host, err)
