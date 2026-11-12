@@ -30,8 +30,9 @@ const (
 // networkOf is the network miniscale.sh starts, from the app's folder.
 func networkOf(dir string) string {
 	b, _ := os.ReadFile(filepath.Join(dir, "network"))
-	if strings.TrimSpace(string(b)) == netWireGuard {
-		return netWireGuard
+	switch n := strings.TrimSpace(string(b)); n {
+	case netWireGuard, netNetBird:
+		return n
 	}
 	return netTailscale
 }
@@ -144,7 +145,7 @@ func wgItems(st *wgStatus, imported, boot bool, now time.Time) []ui.Item {
 	return append(out,
 		ui.Item{Label: "Import a config", Sub: "A .conf on the card or sent with Taildrop", Icon: "plus", Value: row{"wg-import", ""}},
 		ui.Item{Label: "Start at boot", Detail: onOff(boot), Icon: "check", Value: row{"boot", ""}},
-		ui.Item{Label: "Use Tailscale instead", Sub: "Tailscale or Headscale", Icon: "gear", Value: row{"use-tailscale", ""}},
+		ui.Item{Label: "Switch network", Sub: "Tailscale, Headscale or NetBird", Icon: "gear", Value: row{"network", ""}, Chevron: true},
 		ui.Item{Label: "Appearance", Icon: "palette", Value: row{"appearance", ""}},
 	)
 }
@@ -229,12 +230,8 @@ func (a *app) runWireGuard() bool {
 					a.wgImport(st != nil)
 				case "boot":
 					a.setBoot(!(func() bool { _, e := os.Stat(filepath.Join(a.dir, "autostart")); return e == nil })())
-				case "use-tailscale":
-					if a.scr.Confirm(a.input, "Use Tailscale?", "MiniScale disconnects from WireGuard and joins your tailnet instead. Your WireGuard config stays saved.", "Switch") {
-						if err := a.busy("Switching…", func() error { return a.script("network", netTailscale) }); err != nil {
-							a.scr.Notice(a.input, "Couldn't switch", err.Error()+tryAgain)
-							break
-						}
+				case "network":
+					if a.switchNetwork(netWireGuard) {
 						return true
 					}
 				case "appearance":
@@ -331,17 +328,4 @@ func (a *app) wgImport(running bool) {
 	if running { // the new config takes effect on a restart
 		a.busy("Reconnecting…", func() error { a.script("stop"); return a.script("start") })
 	}
-}
-
-// useWireGuard switches MiniScale to a WireGuard network, from the
-// Tailscale screens.
-func (a *app) useWireGuard() bool {
-	if !a.scr.Confirm(a.input, "Use WireGuard?", "MiniScale leaves your tailnet and connects to a plain WireGuard server instead, through the same proxies, so your apps keep working. Your Tailscale login stays saved.", "Switch") {
-		return false
-	}
-	if err := a.busy("Switching…", func() error { return a.script("network", netWireGuard) }); err != nil {
-		a.scr.Notice(a.input, "Couldn't switch", err.Error()+tryAgain)
-		return false
-	}
-	return true
 }

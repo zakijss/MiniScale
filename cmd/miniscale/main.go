@@ -49,8 +49,14 @@ func main() {
 	a.api = newLocalAPI(a.sock)
 	polling := false
 	for {
-		if networkOf(a.dir) == netWireGuard {
+		switch networkOf(a.dir) {
+		case netWireGuard:
 			if !a.runWireGuard() {
+				return
+			}
+			continue
+		case netNetBird:
+			if !a.runNetBird() {
 				return
 			}
 			continue
@@ -100,8 +106,8 @@ type app struct {
 	lists [4]ui.List
 	selID [4]string // keeps the same row selected as lists change
 	note  string    // replaces the subtitle until the next press
-	// switching is set when the network changed to WireGuard: run returns
-	// and main shows the WireGuard screen
+	// switching is set when the network changed to WireGuard or NetBird:
+	// run returns and main shows that network's screen
 	switching bool
 }
 
@@ -261,7 +267,7 @@ func (a *app) key(ev ui.Event) bool {
 		case ev.Button == ui.A:
 			a.turnOn()
 		case ev.Button == ui.Y:
-			a.switching = a.useWireGuard()
+			a.switching = a.switchNetwork(netTailscale)
 		}
 		return true
 	}
@@ -374,7 +380,7 @@ func (a *app) activate() {
 	case "appearance":
 		a.scr.Appearance(a.input)
 	case "network":
-		a.switching = a.useWireGuard()
+		a.switching = a.switchNetwork(netTailscale)
 	}
 }
 
@@ -825,7 +831,7 @@ func (a *app) hints() []ui.Hint {
 		if a.snap.err != nil {
 			on = "Restart"
 		}
-		return []ui.Hint{{Button: "A", Label: on}, {Button: "Y", Label: "WireGuard"}, ui.AppearanceHint, {Button: "B", Label: "Exit"}}
+		return []ui.Hint{{Button: "A", Label: on}, {Button: "Y", Label: "Network"}, ui.AppearanceHint, {Button: "B", Label: "Exit"}}
 	case stNeedsLogin, stNeedsAuth:
 		return []ui.Hint{{Button: "A", Label: "Log in"}, {Button: "Y", Label: "Account"}, {Button: "X", Label: "Turn off"}, ui.AppearanceHint, {Button: "B", Label: "Exit"}}
 	case stStarting:
@@ -961,7 +967,7 @@ func (a *app) items(tab int) []ui.Item {
 			{Label: "Block incoming connections", Sub: "Shields up: nothing gets in", Detail: onOff(p.ShieldsUp), Value: row{"pref", "ShieldsUp"}},
 			{Label: "Device name", Sub: "How it shows in your tailnet", Detail: name, Value: row{"name", ""}, Chevron: true},
 			{Label: "Start at boot", Sub: "Join your tailnet at power-on", Detail: onOff(s.boot), Value: row{"boot", ""}},
-			{Label: "Network", Sub: "Switch to a plain WireGuard server", Detail: "Tailscale", Value: row{"network", ""}, Chevron: true},
+			{Label: "Network", Sub: "Switch to WireGuard or NetBird", Detail: "Tailscale", Value: row{"network", ""}, Chevron: true},
 			{Label: "Taildrop", Sub: "Receive files into Media/Taildrop", Detail: files, Value: row{"files", ""}, Chevron: true},
 			{Label: "About", Sub: "Tailscale " + ver + " · MiniScale " + version.String(), Value: row{"about", ""}},
 			appearanceRow(),

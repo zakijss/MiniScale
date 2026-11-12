@@ -116,5 +116,23 @@ check "network switches back" '[ "$(cmd_network)" = tailscale ] && [ ! -e "$NETF
 cmd_network bogus >/dev/null; rc=$?
 check "network refuses others" '[ $rc -eq 2 ]'
 
+# 12. NetBird: its state round-trips encrypted, and a file this device
+# can't open is set aside instead of overwritten
+mkdir -p "$NBDIR"; echo '{"PrivateKey":"nbkey"}' > "$NBDIR/default.json"
+nb_save; rc=$?
+check "nb_save succeeds" '[ $rc -eq 0 ] && [ -f "$NBENC" ] && ! grep -q nbkey "$NBENC"'
+rm -rf "$NBDIR"
+nb_load
+check "nb_load restores the state" 'grep -q nbkey "$NBDIR/default.json"'
+cp "$ENC" "$NBENC" # sealed with the same key, but not NetBird's
+nb_load >/dev/null
+check "nb_load sets a foreign file aside" '[ ! -f "$NBENC" ] && [ -f "$NBENC.unreadable" ] && [ -d "$NBDIR" ] && [ ! -f "$NBDIR/default.json" ]'
+rm -f "$NBENC.unreadable"
+nb_load; rc=$?
+check "nb_load without a file starts empty" '[ $rc -eq 0 ] && [ -d "$NBDIR" ]'
+cmd_network netbird >/dev/null
+check "network switches to netbird" '[ "$(cmd_network)" = netbird ] && is_nb && ! is_wg'
+cmd_network tailscale >/dev/null
+
 rm -rf "$T"
 exit $fail

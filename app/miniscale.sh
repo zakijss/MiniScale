@@ -18,7 +18,7 @@
 #   miniscale.sh status
 #   miniscale.sh seal FILE  encrypt stdin (an app's secrets JSON) to FILE with
 #                          the device key; the plaintext never touches the card
-#   miniscale.sh network [tailscale|wireguard]   which network start joins
+#   miniscale.sh network [tailscale|wireguard|netbird]   which network start joins
 #                          (stops the one running first); no argument prints it
 #   miniscale.sh wg-import FILE   encrypt a WireGuard config (wg-quick
 #                          format) to wireguard.enc with the device key
@@ -59,6 +59,19 @@ NETFILE=$APP/network
 WGENC=$APP/wireguard.enc
 WGMAGIC="MINISCALE-WG-V1"
 WGSOCK=$RUN/wg.sock
+# NetBird: its client runs in userspace (netstack) mode with its SOCKS5
+# proxy on SOCKS_PORT; miniscale-wg puts an HTTP proxy in front of that. Its
+# state (WireGuard key, login) lives in RAM and is kept on the card only
+# encrypted, like the Tailscale state. The app drives it through the
+# daemon's JSON socket.
+NBBIN=$APP/bin/netbird
+NBENC=$APP/netbird.enc
+NBMAGIC="MINISCALE-NB-V1"
+NBDIR=$RUN/nb
+NBSOCK=$RUN/netbird.sock
+NBJSON=$RUN/netbird-json.sock
+# Other apps send these through the proxy (MiniDeck's tnet reads it).
+ROUTES=$RUN/routes
 AUTO=$APP/autostart
 CONF=$APP/miniscale.conf
 FWDCONF=$APP/forwards.conf
@@ -99,7 +112,8 @@ alive() {
         tailscaled) _want=tailscaled ;;
         fwd) _want=miniscale-fwd ;;
         badge) _want=miniscale-badge ;;
-        wg) _want=miniscale-wg ;;
+        wg|nbhttp) _want=miniscale-wg ;;
+        netbird) _want=netbird ;;
         *) _want=miniscale.sh ;;
     esac
     case "$(tr '\0' ' ' < "/proc/$_pid/cmdline" 2>/dev/null)" in
@@ -107,9 +121,22 @@ alive() {
     esac
     return 1
 }
-network() { [ "$(cat "$NETFILE" 2>/dev/null)" = wireguard ] && echo wireguard || echo tailscale; }
+network() {
+    case "$(cat "$NETFILE" 2>/dev/null)" in
+        wireguard) echo wireguard ;;
+        netbird) echo netbird ;;
+        *) echo tailscale ;;
+    esac
+}
 is_wg() { [ "$(network)" = wireguard ]; }
-running() { if is_wg; then alive wg; else alive tailscaled; fi; }
+is_nb() { [ "$(network)" = netbird ]; }
+running() {
+    case "$(network)" in
+        wireguard) alive wg ;;
+        netbird) alive netbird ;;
+        *) alive tailscaled ;;
+    esac
+}
 backend() { ts status --json 2>/dev/null | sed -n 's/.*"BackendState": *"\([A-Za-z]*\)".*/\1/p' | head -1; }
 # Logs stay small: miniscale.log on the card starts afresh past 64 KB (the
 # previous one kept as .old); the daemons' logs live in RAM (/tmp), so the
@@ -259,6 +286,7 @@ cmd_start() {
 do_start() {
     running && { note "already running"; return 0; }
     is_wg && { wg_start; return; }
+    is_nb && { nb_start; return; }
     kill_orphans
     [ -f "$ENC" ] || { note "not logged in yet: open the app to log in"; return 1; }
     [ -s "$DEVKEY" ] || { note "device key missing ($DEVKEY): log in again"; return $NOSTATE; }
@@ -285,10 +313,12 @@ do_stop() {
     if alive tailscaled; then
         save_state || { note "warning: state not saved"; _saved=1; }
     fi
-    for d in saver badge fwd tailscaled wg; do alive $d && kill "$(pid_of $d)" 2>/dev/null; done
-    i=0; while { alive tailscaled || alive wg; } && [ $i -lt 50 ]; do usleep 200000; i=$((i+1)); done
-    alive tailscaled && kill -9 "$(pid_of tailscaled)" 2>/dev/null
-    alive wg && kill -9 "$(pid_of wg)" 2>/dev/null
+    if alive netbird; then
+        nb_save || { note "warning: NetBird state not saved"; _saved=1; }
+    fi
+    for d in saver badge fwd nbhttp tailscaled wg netbird; do alive $d && kill "$(pid_of $d)" 2>/dev/null; done
+    i=0; while { alive tailscaled || alive wg || alive netbird; } && [ $i -lt 50 ]; do usleep 200000; i=$((i+1)); done
+    for d in tailscaled wg netbird; do alive $d && kill -9 "$(pid_of $d)" 2>/dev/null; done
     kill_orphans
     rm -rf "$RUN"
     note "stopped"
@@ -348,6 +378,13 @@ cmd_fresh() {
 cmd_save() {
     is_wg && return 0 # nothing changes while it runs: the config is saved on import
     running || return 1
+    if is_nb; then
+        lock 30 || return 1
+        nb_save; rc=$?
+        unlock
+        [ $rc -eq 0 ] && note "NetBird state saved" || note "warning: NetBird state not saved"
+        return $rc
+    fi
     lock 30 || return 1
     save_state; rc=$?
     unlock
@@ -371,6 +408,8 @@ cmd_toggle() {
         panel "OFF (won't start at boot)"
     elif is_wg && [ ! -f "$WGENC" ]; then
         panel "No WireGuard config yet: open MiniScale to import one"
+    elif is_nb && [ ! -f "$NBENC" ]; then
+        panel "Not logged in to NetBird yet: open MiniScale to log in"
     elif ! is_wg && { [ ! -f "$ENC" ] || [ ! -s "$DEVKEY" ]; }; then
         st -q -e sh -c "sh '$APP/miniscale.sh' login; printf '\nPress START to close.'; read _"
     elif [ -d "$LOCK" ]; then
@@ -387,7 +426,7 @@ cmd_toggle() {
         cmd_start; rc=$?
         kill -9 "$panel_pid" 2>/dev/null
         if [ $rc -eq 0 ]; then
-            panel "ON: $(is_wg && echo WireGuard || ts ip -4 2>/dev/null)"
+            panel "ON: $(if is_wg; then echo WireGuard; elif is_nb; then echo NetBird; else ts ip -4 2>/dev/null; fi)"
         elif [ $rc -eq $NOSTATE ]; then
             panel "This Miyoo can't open the saved login: log in again"
             st -q -e sh -c "sh '$APP/miniscale.sh' login; printf '\nPress START to close.'; read _"
@@ -409,10 +448,12 @@ cmd_saver() {
         sleep 300
         # A start, a stop or the app's save may hold the lock: then this
         # round is skipped, and the next one saves.
-        if [ -f "$STATE" ] && [ "$STATE" -nt "$RUN/saved" ] && lock 5; then
+        if is_nb; then
+            [ -n "$(find "$NBDIR" -newer "$RUN/saved" 2>/dev/null | head -n 1)" ] && lock 5 && { nb_save; unlock; }
+        elif [ -f "$STATE" ] && [ "$STATE" -nt "$RUN/saved" ] && lock 5; then
             save_state; unlock
         fi
-        for l in "$LOG" "$RUN/fwd.log" "$RUN/badge.log"; do trim_ram_log "$l"; done
+        for l in "$LOG" "$RUN/fwd.log" "$RUN/badge.log" "$RUN/nb.log" "$RUN/nbhttp.log"; do trim_ram_log "$l"; done
     done
 }
 
@@ -426,6 +467,8 @@ cmd_seal() {
 cmd_status() {
     if running && is_wg; then
         echo "running: WireGuard"
+    elif running && is_nb; then
+        echo "running: NetBird"
     elif running; then
         echo "running: $(backend) $(ts ip -4 2>/dev/null)"
         alive fwd && echo "forwarder: on ($(grep -c '^[[:space:]]*[0-9]' "$FWDCONF") ports)"
@@ -457,7 +500,7 @@ wg_start() {
     : > "$RUN/wg.log"; : > "$RUN/fwd.log"
     rm -f "$WGSOCK"
     setsid nohup "$WGBIN" -conf "$RUN/wg.conf" -socks "127.0.0.1:$SOCKS_PORT" \
-        -http "127.0.0.1:$HTTP_PROXY_PORT" -status "$WGSOCK" >> "$RUN/wg.log" 2>&1 &
+        -http "127.0.0.1:$HTTP_PROXY_PORT" -status "$WGSOCK" -routes "$ROUTES" >> "$RUN/wg.log" 2>&1 &
     echo $! > "$RUN/wg.pid"
     i=0; while [ ! -S "$WGSOCK" ] && alive wg && [ $i -lt 100 ]; do usleep 200000; i=$((i+1)); done
     # read once at start: the private key leaves RAM too
@@ -491,15 +534,86 @@ cmd_wg_import() {
     note "WireGuard config imported"
 }
 
+# ---- NetBird ----
+
+# RAM -> encrypted file, checked like save_state. Callers hold the lock.
+nb_save() {
+    [ -d "$NBDIR" ] && [ -s "$DEVKEY" ] || return 1
+    _plain="$RUN/nbsave.tar" _check="$RUN/nbsave.chk"
+    { echo "$NBMAGIC" && tar -C "$RUN" -cf - nb; } > "$_plain" \
+        && "$OSSL" enc -aes-256-cbc -pbkdf2 -iter $ITER -salt -pass "file:$DEVKEY" -in "$_plain" -out "$NBENC.tmp" 2>/dev/null \
+        && "$OSSL" enc -d -aes-256-cbc -pbkdf2 -iter $ITER -pass "file:$DEVKEY" -in "$NBENC.tmp" -out "$_check" 2>/dev/null \
+        && cmp -s "$_plain" "$_check" && mv -f "$NBENC.tmp" "$NBENC" && sync && touch "$RUN/saved"
+    _rc=$?
+    rm -f "$_plain" "$_check" "$NBENC.tmp"
+    return $_rc
+}
+
+# encrypted file -> RAM; no file is fine (not logged in yet). A file this
+# device can't open is set aside, as for Tailscale, and NetBird starts empty.
+nb_load() {
+    mkdir -p "$NBDIR" && chmod 700 "$NBDIR"
+    [ -f "$NBENC" ] || return 0
+    _dec="$RUN/nbdec.$$"
+    if "$OSSL" enc -d -aes-256-cbc -pbkdf2 -iter $ITER -pass "file:$DEVKEY" -in "$NBENC" -out "$_dec" 2>/dev/null \
+        && [ "$(head -n 1 "$_dec")" = "$NBMAGIC" ] && tail -n +2 "$_dec" | tar -C "$RUN" -xf -; then
+        rm -f "$_dec"; return 0
+    fi
+    rm -f "$_dec"
+    rm -rf "$NBDIR"; mkdir -p "$NBDIR" && chmod 700 "$NBDIR"
+    aside="$NBENC.unreadable" n=1
+    while [ -e "$aside" ]; do n=$((n+1)); aside="$NBENC.unreadable.$n"; done
+    mv -f "$NBENC" "$aside" && sync
+    note "saved NetBird state can't be opened on this device (kept as ${aside##*/}): log in again"
+}
+
+nb_start() {
+    [ -x "$NBBIN" ] || { note "bin/netbird is missing: update MiniScale"; return 1; }
+    ensure_devkey || { note "could not create the device key"; return 1; }
+    mkdir -p "$RUN" && chmod 700 "$RUN"
+    umask 077
+    nb_load
+    : > "$RUN/nb.log"; : > "$RUN/nbhttp.log"; : > "$RUN/fwd.log"
+    rm -f "$NBSOCK" "$NBJSON"
+    # netstack mode: no TUN device; NB_DISABLE_DNS as in NetBird's rootless
+    # image (the device's DNS stays as it is); the config dir keeps the CLI
+    # off the read-only home.
+    setsid nohup env NB_USE_NETSTACK_MODE=true NB_DISABLE_DNS=true NB_STATE_DIR="$NBDIR" \
+        NB_SOCKS5_LISTENER_ADDRESS=127.0.0.1 NB_SOCKS5_LISTENER_PORT="$SOCKS_PORT" \
+        XDG_CONFIG_HOME="$RUN/nbcfg" HOME="$RUN" \
+        "$NBBIN" service run --daemon-addr "unix://$NBSOCK" --enable-json-socket --json-socket "unix://$NBJSON" \
+        --log-file console --log-level warn >> "$RUN/nb.log" 2>&1 &
+    echo $! > "$RUN/netbird.pid"
+    i=0; while [ ! -S "$NBJSON" ] && alive netbird && [ $i -lt 150 ]; do usleep 200000; i=$((i+1)); done
+    if ! alive netbird; then
+        note "NetBird didn't start: $(tail -n 1 "$RUN/nb.log" 2>/dev/null)"
+        return 1
+    fi
+    if [ -x "$WGBIN" ]; then
+        setsid nohup "$WGBIN" -via-socks "127.0.0.1:$SOCKS_PORT" -http "127.0.0.1:$HTTP_PROXY_PORT" >> "$RUN/nbhttp.log" 2>&1 &
+        echo $! > "$RUN/nbhttp.pid"
+    fi
+    if [ -f "$FWDCONF" ] && grep -q '^[[:space:]]*[0-9]' "$FWDCONF"; then
+        setsid nohup "$FWD" -c "$FWDCONF" -socks "127.0.0.1:$SOCKS_PORT" >> "$RUN/fwd.log" 2>&1 &
+        echo $! > "$RUN/fwd.pid"
+    fi
+    # NetBird's addresses (its proxy resolves names with the device's own
+    # DNS, so peers are reached by address)
+    printf '# written by miniscale.sh; read by MiniDeck apps\n100.64.0.0/10\n' > "$ROUTES.tmp" && chmod 644 "$ROUTES.tmp" && mv -f "$ROUTES.tmp" "$ROUTES"
+    setsid nohup sh "$APP/miniscale.sh" saver > /dev/null 2>&1 &
+    echo $! > "$RUN/saver.pid"
+    note "started: NetBird"
+}
+
 cmd_network() {
     case "$1" in
         "") network; return 0 ;;
-        tailscale|wireguard) ;;
-        *) echo "usage: miniscale.sh network [tailscale|wireguard]"; return 2 ;;
+        tailscale|wireguard|netbird) ;;
+        *) echo "usage: miniscale.sh network [tailscale|wireguard|netbird]"; return 2 ;;
     esac
     [ "$(network)" = "$1" ] && return 0
-    if alive tailscaled || alive wg; then cmd_stop >/dev/null || true; fi
-    if [ "$1" = wireguard ]; then echo wireguard > "$NETFILE"; else rm -f "$NETFILE"; fi
+    if alive tailscaled || alive wg || alive netbird; then cmd_stop >/dev/null || true; fi
+    if [ "$1" = tailscale ]; then rm -f "$NETFILE"; else echo "$1" > "$NETFILE"; fi
     sync
     note "network: $1"
 }
