@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 V=${1:?usage: package.sh VERSION}
 V=${V#v}
 ZIP=miniscale-$V.zip
-for b in miniscale miniscale-fwd miniscale-badge; do
+for b in miniscale miniscale-fwd miniscale-badge miniscale-wg; do
     LC_ALL=C grep -aq "minideck-version=$V" "dist/$b" ||
         { echo "dist/$b isn't version $V: run VERSION=$V scripts/build.sh" >&2; exit 1; }
 done
@@ -20,7 +20,7 @@ A="$STAGE/App/MiniScale"
 mkdir -p "$A/licenses"
 cp app/* "$A/"
 mkdir -p "$A/bin"
-cp dist/tailscaled dist/miniscale-fwd dist/miniscale-badge "$A/bin/"
+cp dist/tailscaled dist/miniscale-fwd dist/miniscale-badge dist/miniscale-wg "$A/bin/"
 cp dist/miniscale "$A/"
 echo "$V" > "$A/version.txt"
 cp LICENSE "$A/licenses/miniscale-LICENSE"

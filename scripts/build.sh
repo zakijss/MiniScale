@@ -27,7 +27,7 @@ got=$(git -C build/tailscale rev-parse HEAD)
         -o ../../dist/tailscaled ./cmd/tailscaled
 )
 ld="-s -w -X github.com/zakijss/minideck/version.stamp=minideck-version=$VERSION"
-for c in miniscale miniscale-fwd miniscale-badge; do
+for c in miniscale miniscale-fwd miniscale-badge miniscale-wg; do
     go build -trimpath -ldflags "$ld" -o "dist/$c" "./cmd/$c"
 done
 ls -l dist
