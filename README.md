@@ -6,12 +6,13 @@
 
 # MiniScale
 
-An unofficial Tailscale client for the Miyoo Mini Plus. It puts the device on your tailnet, so the other MiniDeck apps (and your own) can reach the servers on it, and it works like the Tailscale apps on a phone. Part of [MiniDeck](https://github.com/zakijss/MiniDeck).
+An unofficial Tailscale client for the Miyoo Mini Plus, which also works with your own [Headscale](https://headscale.net) server or a plain WireGuard server. It puts the device on your network, so the other MiniDeck apps (and your own) can reach the servers on it, and it works like the Tailscale apps on a phone. Part of [MiniDeck](https://github.com/zakijss/MiniDeck).
 
 - Log in by scanning a QR code with your phone; connects by itself at boot.
 - Devices with their addresses, connection type and ping; exit nodes; subnet routes; Tailscale DNS and SSH; shields up; several accounts.
 - Taildrop: files sent to the Miyoo land in `Media/Taildrop`.
 - A status icon in the Onion menu.
+- Your own server: log in to Headscale (or another Tailscale-compatible server) with the same QR code, or connect to a plain WireGuard server from a `.conf` file.
 - Tailscale 1.104.6 built from source down to 18.9 MB, with its state on the card only encrypted, with a key kept in the device's own flash.
 
 
@@ -36,6 +37,20 @@ The device has no TUN interface, so Tailscale runs in userspace mode and other p
 
 Settings that apply before the first login (the device name, Tailscale SSH, the proxy ports) are in `App/MiniScale/miniscale.conf`. With MiniScale on, the CLI is `/tmp/miniscale/tailscale --socket=/tmp/miniscale/tailscaled.sock`.
 
+### Headscale
+
+When you log in or add an account, pick **Your own server** and type its address (for example `hs.example.com`). The QR code then opens your server's login page; with Headscale, approve the device there or with `headscale nodes register`. Each account remembers its server, and the Account tab shows it.
+
+### WireGuard
+
+For a plain WireGuard server (a router, wg-easy, a VPS), MiniScale runs WireGuard in userspace behind the same proxies, so the other apps work unchanged.
+
+1. Make a config for the Miyoo on your server (the usual `wg-quick` `.conf` with an `[Interface]` and a `[Peer]`).
+2. Copy it to the top of the SD card or to `App/MiniScale`, or send it with Taildrop.
+3. In MiniScale, choose **Settings > Network** (or **Y** while MiniScale is off), then **Import a config**, and connect.
+
+MiniScale keeps the config encrypted with the device key, like the Tailscale login, and offers to remove the plain file, which holds the private key. Connections to the addresses in a peer's `AllowedIPs` go through WireGuard and the rest go out directly, so a full-tunnel config (`0.0.0.0/0`) sends everything through your server. Only TCP goes through the proxies. **Use Tailscale instead** on the WireGuard screen switches back; both logins stay saved.
+
 MiniScale is not made or supported by Tailscale Inc.
 
 ## Install
@@ -46,7 +61,7 @@ MiniScale is not made or supported by Tailscale Inc.
 
 ## Requirements
 
-A Miyoo Mini Plus on Onion OS 4.4, with Wi-Fi. A Tailscale account. Other devices and firmwares aren't supported.
+A Miyoo Mini Plus on Onion OS 4.4, with Wi-Fi. A Tailscale account, a Headscale server, or a WireGuard server. Other devices and firmwares aren't supported.
 
 ## Building
 

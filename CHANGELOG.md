@@ -6,6 +6,11 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Your own server: logging in or adding an account asks for Tailscale or your own server (Headscale or another Tailscale-compatible one), and the Account tab shows each account's server.
+- WireGuard: connect to a plain WireGuard server from a `.conf` file, through the same SOCKS5 and HTTP proxies, so the other apps work unchanged. The config is kept encrypted with the device key. Settings > Network switches, and Y does too while MiniScale is off.
+
 ## [1.1.0] - 2026-11-12
 
 ### Added
