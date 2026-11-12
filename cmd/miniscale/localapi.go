@@ -256,6 +256,14 @@ func (p Profile) Login() string {
 // About is the second line under an account: its tailnet, or for a tagged
 // device that it is one.
 func (p Profile) About() string {
+	about := p.about()
+	if !isTailscale(p.ControlURL) { // Headscale and the like: say where
+		about = strings.TrimPrefix(about+" · "+serverHost(p.ControlURL), " · ")
+	}
+	return about
+}
+
+func (p Profile) about() string {
 	if p.Tagged() {
 		if d := strings.TrimSuffix(p.NetworkProfile.MagicDNSName, "."); d != "" {
 			return "tagged device · " + d

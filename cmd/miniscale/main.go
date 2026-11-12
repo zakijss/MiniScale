@@ -66,14 +66,15 @@ type snapshot struct {
 }
 
 type app struct {
-	scr   *ui.Screen
-	input <-chan ui.Event
-	dir   string
-	sock  string
-	api   *localAPI
-	snap  snapshot
-	snaps chan snapshot
-	kick  chan struct{} // ask the poller for a fresh snapshot now
+	scr       *ui.Screen
+	input     <-chan ui.Event
+	loginHost string // the server the login screen names
+	dir       string
+	sock      string
+	api       *localAPI
+	snap      snapshot
+	snaps     chan snapshot
+	kick      chan struct{} // ask the poller for a fresh snapshot now
 	// gen moves on with every refresh, that is after every action, so a
 	// snapshot the poller began reading before an action is known to be
 	// out of date (see take).
@@ -245,7 +246,9 @@ func (a *app) key(ev ui.Event) bool {
 		switch ev.Button {
 		case ui.A:
 			if !ev.Repeat && st != stStarting {
-				a.login(false)
+				if control, ok := a.pickServer(); ok {
+					a.login(false, control)
+				}
 			}
 		case ui.Y:
 			if !ev.Repeat {
@@ -340,7 +343,7 @@ func (a *app) activate() {
 	case "add":
 		a.addAccount()
 	case "relogin":
-		a.login(true)
+		a.login(true, "")
 	case "logout":
 		a.logout()
 	case "off":
@@ -481,7 +484,9 @@ func (a *app) turnOn() {
 		a.refresh()
 		a.note = "On: " + a.selfIP()
 	case stNeedsLogin:
-		a.login(false)
+		if control, ok := a.pickServer(); ok {
+			a.login(false, control)
+		}
 	case stOff:
 		if err == nil {
 			err = errors.New("tailscaled didn't start")
@@ -600,7 +605,12 @@ func (a *app) switchProfile(id string) {
 	}
 	a.saveState()
 	if a.snap.state() == stNeedsLogin {
-		a.login(false)
+		// a saved account logs in again with its own server
+		control := ""
+		if p := a.snap.prefs; p != nil && !isTailscale(p.ControlURL) {
+			control = p.ControlURL
+		}
+		a.login(false, control)
 		return
 	}
 	if a.snap.cur != nil {
@@ -620,12 +630,16 @@ func (a *app) addAccount() {
 	for _, p := range a.snap.profiles {
 		known[p.ID] = true
 	}
+	control, ok := a.pickServer()
+	if !ok {
+		return
+	}
 	if err := a.api.NewProfile(context.Background()); err != nil {
 		a.scr.Notice(a.input, "Couldn't add an account", err.Error()+tryAgain)
 		return
 	}
 	a.refresh()
-	if a.login(false) {
+	if a.login(false, control) {
 		return
 	}
 	note := a.note
@@ -829,7 +843,11 @@ func (a *app) draw() {
 		}
 		a.card(top, "Not logged in", body)
 	case stNeedsAuth:
-		a.card(top, "Waiting for approval", "This device is logged in, but your tailnet needs an admin to approve it in the Tailscale admin console (Machines).")
+		body := "This device is logged in, but your tailnet needs an admin to approve it in the Tailscale admin console (Machines)."
+		if p := a.snap.prefs; p != nil && !isTailscale(p.ControlURL) {
+			body = "This device is logged in, but " + serverHost(p.ControlURL) + " needs its admin to approve it (with Headscale: headscale nodes register)."
+		}
+		a.card(top, "Waiting for approval", body)
 	default:
 		a.drawTabs(top)
 		r := image.Rect(20, top+46, ui.W-26, ui.H-58)
@@ -1033,7 +1051,7 @@ func (a *app) accountItems() []ui.Item {
 	}
 	return append(out,
 		ui.Item{Label: "Log in again", Sub: "Re-authenticate with a QR code", Icon: "check", Value: row{"relogin", ""}},
-		ui.Item{Label: "Add another account", Sub: "Log in to a second tailnet", Icon: "plus", Value: row{"add", ""}},
+		ui.Item{Label: "Add another account", Sub: "Another tailnet, or your own Headscale server", Icon: "plus", Value: row{"add", ""}},
 		ui.Item{Label: "Log out", Sub: "Leave this tailnet", Icon: "cross", Value: row{"logout", ""}},
 		ui.Item{Label: "Turn MiniScale off", Sub: "Stop Tailscale and free its memory", Icon: "cross", Value: row{"off", ""}},
 	)

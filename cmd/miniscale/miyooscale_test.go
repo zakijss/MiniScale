@@ -250,10 +250,20 @@ func TestAddAccountCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Cancelling the choice of server changes nothing.
 	in := make(chan ui.Event)
-	close(in) // leaving the login screen at once, as B does
+	close(in)
 	a := &app{scr: scr, input: in, api: newLocalAPI(f.sock), dir: t.TempDir(), sock: f.sock}
 	a.snap = a.fetchGen()
+	a.addAccount()
+	if len(f.switched) != 0 || len(f.deleted) != 0 {
+		t.Fatalf("cancelled server choice: switched to %v, deleted %v", f.switched, f.deleted)
+	}
+
+	in = make(chan ui.Event, 1)
+	in <- ui.Event{Button: ui.A, Pressed: true} // Tailscale
+	close(in)                                   // then leaving the login screen at once, as B does
+	a.input = in
 	a.addAccount()
 	if !slices.Equal(f.switched, []string{"p1"}) || !slices.Equal(f.deleted, []string{"p3"}) {
 		t.Errorf("switched to %v, deleted %v; want back to p1 and p3 deleted", f.switched, f.deleted)
@@ -400,5 +410,34 @@ func TestOnlineCount(t *testing.T) {
 	a.snap = a.fetch()
 	if it := a.deviceItems()[0]; it.Detail != "1 of 2 online" {
 		t.Errorf("this Miyoo's row: %q", it.Detail)
+	}
+}
+
+func TestControlAddress(t *testing.T) {
+	for in, want := range map[string]string{
+		"hs.example.com":              "https://hs.example.com",
+		" https://hs.example.com/ ":   "https://hs.example.com",
+		"http://10.0.0.5:8080":        "http://10.0.0.5:8080",
+		"https://example.com/hs/":     "https://example.com/hs",
+		"ftp://hs.example.com":        "",
+		"https://":                    "",
+		"https://hs.example.com/?x=1": "",
+	} {
+		got, err := controlAddress(in)
+		if (err != nil) != (want == "") || got != want {
+			t.Errorf("controlAddress(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if !isTailscale("") || !isTailscale(tailscaleControl) || isTailscale("https://hs.example.com") {
+		t.Error("isTailscale")
+	}
+	p := Profile{ControlURL: "https://hs.example.com"}
+	p.NetworkProfile.DomainName = "hs.net"
+	if got := p.About(); got != "hs.net · hs.example.com" {
+		t.Errorf("About = %q", got)
+	}
+	p.ControlURL = tailscaleControl
+	if got := p.About(); got != "hs.net" {
+		t.Errorf("About on Tailscale = %q", got)
 	}
 }
