@@ -15,11 +15,11 @@ All notable changes are listed here. The format follows
 
 ### Changed
 
-- Tailscale, WireGuard and NetBird free memory sooner (GOGC=50, and a 24 MiB soft limit for Tailscale), so the Miyoo swaps less. GOGC can be set in miniscale.conf.
+- Tailscale, WireGuard and NetBird free memory sooner (GOGC=50, and a 40 MiB soft limit for Tailscale, high enough that a large tailnet doesn't keep it collecting garbage), so the Miyoo swaps less. GOGC can be set in miniscale.conf.
 
 ### Fixed
 
-- After a crash, starting again stops the status icon, port forwarder and saver the last run left behind, instead of running a second set next to them.
+- After a crash, starting again stops the status icon, port forwarder and saver the last run left behind, instead of running a second set next to them. Only the saver itself is stopped, never another MiniScale command that happens to have its old process number.
 - The status icon hides when Tailscale has crashed, instead of staying grey.
 - The status icon no longer blinks while Tailscale is slow to answer, as when the Miyoo swaps.
 - Switching networks while the boot hook starts one no longer leaves the old one running.

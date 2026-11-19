@@ -145,6 +145,24 @@ kill_orphans
 sleep 1
 check "a leftover badge is stopped" '! kill -0 $stray 2>/dev/null'
 wait $stray 2>/dev/null
+# the saver's pid, reused by another miniscale.sh command, is left alone;
+# a leftover saver is stopped
+printf '#!/bin/sh\nwhile :; do sleep 1; done\n' > "$T/bin/miniscale.sh"
+chmod +x "$T/bin/miniscale.sh"
+"$T/bin/miniscale.sh" status & other=$!
+echo $other > "$RUN/saver.pid"
+sleep 1
+kill_orphans
+sleep 1
+check "another miniscale.sh command is not the saver" 'kill -0 $other 2>/dev/null'
+kill $other; wait $other 2>/dev/null
+"$T/bin/miniscale.sh" saver & stray=$!
+echo $stray > "$RUN/saver.pid"
+sleep 1
+kill_orphans
+sleep 1
+check "a leftover saver is stopped" '! kill -0 $stray 2>/dev/null'
+wait $stray 2>/dev/null
 
 # 14. at boot, NetBird starts only once logged in (it runs logged out only
 # for the app to log in)

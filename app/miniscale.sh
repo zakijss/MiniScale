@@ -119,7 +119,9 @@ alive() {
         badge) _want=miniscale-badge ;;
         wg|nbhttp) _want=miniscale-wg ;;
         netbird) _want=netbird ;;
-        *) _want=miniscale.sh ;;
+        # the saver by its argument too: another miniscale.sh command that
+        # got its pid isn't it
+        *) _want="miniscale.sh $1" ;;
     esac
     case "$(tr '\0' ' ' < "/proc/$_pid/cmdline" 2>/dev/null)" in
         *"$_want"*) return 0 ;;
@@ -262,7 +264,7 @@ start_daemons() {
     : > "$LOG"; : > "$RUN/fwd.log"; : > "$RUN/badge.log"
     # GOMEMLIMIT: a soft cap well above tailscaled's usual heap, past which
     # its GC works harder and gives memory back to the system sooner
-    setsid nohup env GOMEMLIMIT=24MiB "$BIN" --tun=userspace-networking --statedir="$RUN" --state="$STATE" \
+    setsid nohup env GOMEMLIMIT=40MiB "$BIN" --tun=userspace-networking --statedir="$RUN" --state="$STATE" \
         --socket="$SOCK" --socks5-server="127.0.0.1:$SOCKS_PORT" \
         --outbound-http-proxy-listen="127.0.0.1:$HTTP_PROXY_PORT" >> "$LOG" 2>&1 &
     echo $! > "$RUN/tailscaled.pid"
