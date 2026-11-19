@@ -413,6 +413,21 @@ func TestOnlineCount(t *testing.T) {
 	}
 }
 
+// This Miyoo's row opens its own details: the full name others reach it by.
+func TestSelfDetails(t *testing.T) {
+	f := startFake(t)
+	a := &app{api: newLocalAPI(f.sock), dir: t.TempDir(), sock: f.sock}
+	a.snap = a.fetch()
+	r, _ := a.deviceItems()[0].Value.(row)
+	p := a.peer(r.id)
+	if r.kind != "peer" || p == nil || p != a.snap.st.Self {
+		t.Fatalf("this Miyoo's row %+v opens %v", r, p)
+	}
+	if it := peerItems(p, "")[1]; it.Sub != "miyoo.tail-x.ts.net" {
+		t.Errorf("name row: %+v", it)
+	}
+}
+
 func TestControlAddress(t *testing.T) {
 	for in, want := range map[string]string{
 		"hs.example.com":              "https://hs.example.com",

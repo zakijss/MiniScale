@@ -1,6 +1,11 @@
 package main
 
 import (
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -46,5 +51,69 @@ func TestStoppedState(t *testing.T) {
 		if got := stoppedState([]byte(c.stat)); got != c.want {
 			t.Errorf("%q: got %v, want %v", c.stat, got, c.want)
 		}
+	}
+}
+
+func TestStateOf(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	recent := strconv.FormatInt(now.Add(-time.Minute).Unix(), 10)
+	old := strconv.FormatInt(now.Add(-5*time.Minute).Unix(), 10)
+	for _, c := range []struct{ net, body, want string }{
+		{"tailscale", `{"BackendState":"Running"}`, "Running"},
+		{"tailscale", `{"BackendState":"NeedsLogin"}`, "NeedsLogin"},
+		{"tailscale", `junk`, ""},
+		{"wireguard", `{"up":true,"peers":[{"lastHandshake":0},{"lastHandshake":` + recent + `}]}`, "Running"},
+		{"wireguard", `{"up":true,"peers":[{"lastHandshake":` + old + `}]}`, "Starting"},
+		{"wireguard", `{"up":true,"peers":[]}`, "Starting"},
+		{"wireguard", `junk`, ""},
+		{"netbird", `{"status":"Connected"}`, "Running"},
+		{"netbird", `{"status":"Connecting"}`, ""},
+		{"netbird", `{"status":"Idle"}`, "Stopped"},
+		{"netbird", `{"status":"SessionExpired"}`, "NeedsLogin"},
+	} {
+		if got := stateOf(c.net, []byte(c.body), now); got != c.want {
+			t.Errorf("%s %s: got %q, want %q", c.net, c.body, got, c.want)
+		}
+	}
+}
+
+func TestBackend(t *testing.T) {
+	dir, err := os.MkdirTemp("", "bd") // short: Unix socket paths are limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := filepath.Join(dir, "wg.sock")
+
+	// no socket: off, unless the daemon behind the pid file is alive
+	if got := backend("wireguard", sock); got != "" {
+		t.Errorf("no socket, no pid file: got %q", got)
+	}
+	os.WriteFile(filepath.Join(dir, "wg.pid"), []byte("999999999\n"), 0o644)
+	if got := backend("wireguard", sock); got != "" {
+		t.Errorf("a crashed daemon's pid file: got %q", got)
+	}
+	if _, err := os.Stat("/proc/self"); err == nil { // procs reads /proc
+		os.WriteFile(filepath.Join(dir, "wg.pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644)
+		if got := backend("wireguard", sock); got != "Starting" {
+			t.Errorf("daemon alive, no socket yet: got %q", got)
+		}
+	}
+
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	hs := strconv.FormatInt(time.Now().Unix(), 10)
+	go http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/status" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"up":true,"peers":[{"lastHandshake":` + hs + `}]}`))
+	}))
+	if got := backend("wireguard", sock); got != "Running" {
+		t.Errorf("connected: got %q", got)
 	}
 }

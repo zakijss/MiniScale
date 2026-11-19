@@ -15,7 +15,8 @@ import (
 	"github.com/zakijss/minideck/ui"
 )
 
-// peerDetails shows one device, updating as the status does; X pings it.
+// peerDetails shows one device, this one included, updating as the status
+// does; X pings another.
 func (a *app) peerDetails(id string) {
 	s := a.scr
 	var l ui.List
@@ -37,7 +38,11 @@ func (a *app) peerDetails(id string) {
 		} else {
 			sub += " · offline"
 		}
+		self := a.snap.st.Self == p
 		hints := []ui.Hint{{Button: "X", Label: "Ping"}, {Button: "B", Label: "Back"}}
+		if self {
+			hints = hints[1:]
+		}
 		if p.ExitNodeOption {
 			label := "Use as exit node"
 			if p.ExitNode {
@@ -60,7 +65,7 @@ func (a *app) peerDetails(id string) {
 			case ui.B, ui.Menu:
 				return
 			case ui.X:
-				if !pinging && !ev.Repeat {
+				if !pinging && !ev.Repeat && !self {
 					pinging, ping = true, "…"
 					ip := p.IPv4()
 					go func() { pings <- a.pingText(ip) }()

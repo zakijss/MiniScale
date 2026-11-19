@@ -1,8 +1,9 @@
 // miniscale-badge draws MiniScale's status icon next to the theme's Wi-Fi
-// icon in the Onion menu's top bar: white when connected to the tailnet,
-// grey while connecting, orange when it needs a login. It runs while
-// MiniScale is on and draws only over the menu (not in games or apps, nor
-// while the menu is paused by a program that has taken the screen).
+// icon in the Onion menu's top bar: white when connected (to the tailnet,
+// the WireGuard server or NetBird), grey while connecting, orange when it
+// needs a login or is disconnected. It runs while MiniScale is on and draws
+// only over the menu (not in games or apps, nor while the menu is paused by
+// a program that has taken the screen).
 //
 // It stays small on purpose (it runs all the time next to games): it uses
 // the fb package rather than the full UI with its fonts, and speaks just
@@ -29,6 +30,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"time"
@@ -109,7 +111,8 @@ var (
 func main() {
 	version.Flag("miniscale-badge")
 	version.Note("miniscale-badge")
-	sock := flag.String("socket", "/tmp/miniscale/tailscaled.sock", "tailscaled's socket")
+	network := flag.String("net", "tailscale", "the network MiniScale runs: tailscale, wireguard or netbird")
+	sock := flag.String("socket", "/tmp/miniscale/tailscaled.sock", "its daemon's status socket")
 	x := flag.Int("x", 474, "left edge of the icon (screen pixels); the default suits themes with Wi-Fi at about x=507")
 	y := flag.Int("y", 18, "top edge of the icon")
 	size := flag.Int("size", 26, "icon size")
@@ -161,8 +164,17 @@ func main() {
 		}
 	}
 
+	// The state is read apart from the loop below: a daemon slow to answer
+	// (the device swapping) mustn't hold up putting the icon back.
+	states := make(chan string, 1)
+	go func() {
+		for {
+			states <- backend(*network, *sock)
+			time.Sleep(3 * time.Second)
+		}
+	}()
+
 	poll := time.NewTicker(time.Second)
-	n := 0
 	for {
 		select {
 		case <-press:
@@ -173,11 +185,8 @@ func main() {
 			if guardT != nil {
 				setGuard()
 			}
+		case state = <-states:
 		case <-poll.C:
-			n++
-			if n%3 == 1 {
-				state = backend(*sock)
-			}
 			if menuPid == 0 || !procs.Exists(menuPid) {
 				menuPid = procs.Pid("MainUI")
 			}
@@ -245,22 +254,37 @@ func stoppedState(stat []byte) bool {
 	return i >= 0 && i+2 < len(stat) && (stat[i+2] == 'T' || stat[i+2] == 't')
 }
 
-// backend returns tailscaled's state ("Running", "Starting", "NeedsLogin"…),
-// or "" when it isn't running.
-func backend(sock string) string {
-	starting := func() string {
-		if _, err := os.Stat("/tmp/miniscale/tailscaled.pid"); err == nil {
+// The status requests, in plain HTTP/1.0 (the answer ends when the
+// connection closes).
+const (
+	tsReq = "GET /localapi/v0/status?peers=false HTTP/1.0\r\nHost: local-tailscaled.sock\r\nSec-Tailscale: localapi\r\n\r\n"
+	wgReq = "GET /status HTTP/1.0\r\nHost: wg\r\n\r\n"
+	nbReq = "POST /daemon.DaemonService/Status HTTP/1.0\r\nHost: netbird\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}"
+)
+
+// backend returns the network's state in tailscaled's words ("Running",
+// "Starting", "NeedsLogin"…), or "" when its daemon isn't running: no
+// socket, and no live process behind its pid file (one left by a crash
+// doesn't count).
+func backend(network, sock string) string {
+	req, pidFile := tsReq, "tailscaled.pid"
+	switch network {
+	case "wireguard":
+		req, pidFile = wgReq, "wg.pid"
+	case "netbird":
+		req, pidFile = nbReq, "netbird.pid"
+	}
+	c, err := net.DialTimeout("unix", sock, 2*time.Second)
+	if err != nil {
+		b, _ := os.ReadFile(filepath.Join(filepath.Dir(sock), pidFile))
+		if pid, _ := strconv.Atoi(string(bytes.TrimSpace(b))); pid > 0 && procs.Exists(pid) {
 			return "Starting"
 		}
 		return ""
 	}
-	c, err := net.DialTimeout("unix", sock, 2*time.Second)
-	if err != nil {
-		return starting()
-	}
 	defer c.Close()
 	c.SetDeadline(time.Now().Add(3 * time.Second))
-	io.WriteString(c, "GET /localapi/v0/status?peers=false HTTP/1.0\r\nHost: local-tailscaled.sock\r\nSec-Tailscale: localapi\r\n\r\n")
+	io.WriteString(c, req)
 	r := bufio.NewReader(c)
 	for { // skip the status line and headers
 		line, err := r.ReadString('\n')
@@ -271,10 +295,50 @@ func backend(sock string) string {
 			break
 		}
 	}
-	var st struct{ BackendState string }
-	if json.NewDecoder(r).Decode(&st) != nil || st.BackendState == "" {
-		return "Starting"
+	body, err := io.ReadAll(io.LimitReader(r, 64<<10))
+	if s := stateOf(network, body, time.Now()); err == nil && s != "" {
+		return s
 	}
+	return "Starting"
+}
+
+// stateOf reads a status answer into tailscaled's words; "" when it can't.
+func stateOf(network string, body []byte, now time.Time) string {
+	switch network {
+	case "wireguard":
+		// connected once a peer has answered lately (a session dies after
+		// three minutes without a handshake)
+		var st struct {
+			Peers []struct {
+				LastHandshake int64 `json:"lastHandshake"`
+			} `json:"peers"`
+		}
+		if json.Unmarshal(body, &st) != nil {
+			return ""
+		}
+		for _, p := range st.Peers {
+			if p.LastHandshake > 0 && now.Sub(time.Unix(p.LastHandshake, 0)) < 3*time.Minute {
+				return "Running"
+			}
+		}
+		return "Starting"
+	case "netbird":
+		var st struct {
+			Status string `json:"status"`
+		}
+		json.Unmarshal(body, &st)
+		switch st.Status {
+		case "Connected":
+			return "Running"
+		case "Idle":
+			return "Stopped"
+		case "NeedsLogin", "LoginFailed", "SessionExpired":
+			return "NeedsLogin"
+		}
+		return ""
+	}
+	var st struct{ BackendState string }
+	json.Unmarshal(body, &st)
 	return st.BackendState
 }
 

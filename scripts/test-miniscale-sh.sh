@@ -134,5 +134,27 @@ cmd_network netbird >/dev/null
 check "network switches to netbird" '[ "$(cmd_network)" = netbird ] && is_nb && ! is_wg'
 cmd_network tailscale >/dev/null
 
+# 13. helpers a crash left behind (their daemon gone) are stopped before a
+# new start runs its own
+printf '#!/bin/sh\nwhile :; do sleep 1; done\n' > "$T/bin/miniscale-badge"
+chmod +x "$T/bin/miniscale-badge"
+mkdir -p "$RUN"; "$T/bin/miniscale-badge" & stray=$!
+echo $stray > "$RUN/badge.pid"
+sleep 1
+kill_orphans
+sleep 1
+check "a leftover badge is stopped" '! kill -0 $stray 2>/dev/null'
+wait $stray 2>/dev/null
+
+# 14. at boot, NetBird starts only once logged in (it runs logged out only
+# for the app to log in)
+touch "$AUTO"; echo netbird > "$NETFILE"; rm -f "$NBENC"; : > "$APP/miniscale.log"
+sh "${SRC:-/src}/app/miniscale.sh" boot
+check "boot skips a NetBird never logged in" '! grep -q "bin/netbird" "$APP/miniscale.log"'
+echo x > "$NBENC"
+sh "${SRC:-/src}/app/miniscale.sh" boot
+check "boot starts a logged-in NetBird" 'grep -q "bin/netbird is missing" "$APP/miniscale.log"'
+rm -f "$AUTO" "$NETFILE" "$NBENC"
+
 rm -rf "$T"
 exit $fail

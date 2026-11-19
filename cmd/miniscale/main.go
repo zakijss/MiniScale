@@ -388,6 +388,9 @@ func (a *app) peer(id string) *Peer {
 	if a.snap.st == nil {
 		return nil
 	}
+	if s := a.snap.st.Self; s != nil && s.ID == id {
+		return s
+	}
 	for _, p := range a.snap.st.Peer {
 		if p.ID == id {
 			return p
@@ -990,7 +993,7 @@ func (a *app) deviceItems() []ui.Item {
 	var out []ui.Item
 	peers := sortedPeers(st)
 	if self := st.Self; self != nil {
-		it := ui.Item{Label: self.Name() + " (this Miyoo)", Sub: strings.Join(self.TailscaleIPs, " · "), Icon: "star", Value: row{"self", ""}}
+		it := ui.Item{Label: self.Name() + " (this Miyoo)", Sub: strings.Join(self.TailscaleIPs, " · "), Icon: "star", Chevron: true, Value: row{"peer", self.ID}}
 		if len(peers) > 0 {
 			on := 0
 			for _, p := range peers {

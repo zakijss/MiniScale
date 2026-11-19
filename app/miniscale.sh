@@ -99,6 +99,11 @@ BADGE=true
 BADGE_X=474
 BADGE_Y=18
 [ -f "$CONF" ] && . "$CONF"
+# The daemons are Go programs, and Go lets the heap grow to twice what is
+# live before collecting; with 128 MB that pushes the device into swap on
+# the card. Collect sooner (miniscale.conf can override these).
+GOGC=${GOGC:-50}
+export GOGC
 
 ts() { "$RUN/tailscale" --socket="$SOCK" "$@"; }
 pid_of() { cat "$RUN/$1.pid" 2>/dev/null; }
@@ -165,12 +170,19 @@ lock() { # waits up to $1 seconds; a lock left by a dead process is taken over
 unlock() { rm -rf "$LOCK"; }
 
 # Kills tailscaleds started for our socket that no pid file points to (left
-# behind by a crash or an older version's double start).
+# behind by a crash or an older version's double start) and, while the
+# network isn't running, the helpers its last run left behind (after a
+# crash a new start would run a second badge, saver and forwarder).
 kill_orphans() {
     for p in $(pidof tailscaled 2>/dev/null); do
         [ "$p" = "$(pid_of tailscaled)" ] && running && continue
         tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q -- "--socket=$SOCK" && kill -9 "$p" 2>/dev/null
     done
+    running && return 0
+    for d in saver badge fwd nbhttp wg netbird; do
+        alive $d && [ "$(pid_of $d)" != $$ ] && kill "$(pid_of $d)" 2>/dev/null
+    done
+    return 0
 }
 
 ensure_devkey() {
@@ -248,7 +260,9 @@ start_daemons() {
     # Logs are opened for appending, so trim_ram_log can shorten them while
     # the daemons write (a plain > would keep writing at the old offset).
     : > "$LOG"; : > "$RUN/fwd.log"; : > "$RUN/badge.log"
-    setsid nohup "$BIN" --tun=userspace-networking --statedir="$RUN" --state="$STATE" \
+    # GOMEMLIMIT: a soft cap well above tailscaled's usual heap, past which
+    # its GC works harder and gives memory back to the system sooner
+    setsid nohup env GOMEMLIMIT=24MiB "$BIN" --tun=userspace-networking --statedir="$RUN" --state="$STATE" \
         --socket="$SOCK" --socks5-server="127.0.0.1:$SOCKS_PORT" \
         --outbound-http-proxy-listen="127.0.0.1:$HTTP_PROXY_PORT" >> "$LOG" 2>&1 &
     echo $! > "$RUN/tailscaled.pid"
@@ -257,13 +271,16 @@ start_daemons() {
         setsid nohup "$FWD" -c "$FWDCONF" -socks "127.0.0.1:$SOCKS_PORT" >> "$RUN/fwd.log" 2>&1 &
         echo $! > "$RUN/fwd.pid"
     fi
-    if [ "$BADGE" = "true" ] && [ -x "$BADGEBIN" ]; then
-        setsid nohup nice -n 10 "$BADGEBIN" -socket "$SOCK" -x "$BADGE_X" -y "$BADGE_Y" >> "$RUN/badge.log" 2>&1 &
-        echo $! > "$RUN/badge.pid"
-    fi
+    start_badge tailscale "$SOCK"
     # Re-save the state when tailscaled changes it (e.g. key renewal).
     setsid nohup sh "$APP/miniscale.sh" saver > /dev/null 2>&1 &
     echo $! > "$RUN/saver.pid"
+}
+
+start_badge() { # $1 = network, $2 = its status socket
+    [ "$BADGE" = "true" ] && [ -x "$BADGEBIN" ] || return 0
+    setsid nohup nice -n 10 "$BADGEBIN" -net "$1" -socket "$2" -x "$BADGE_X" -y "$BADGE_Y" >> "$RUN/badge.log" 2>&1 &
+    echo $! > "$RUN/badge.pid"
 }
 
 wait_backend() { # $1 = seconds; prints final state
@@ -285,9 +302,9 @@ cmd_start() {
 
 do_start() {
     running && { note "already running"; return 0; }
+    kill_orphans
     is_wg && { wg_start; return; }
     is_nb && { nb_start; return; }
-    kill_orphans
     [ -f "$ENC" ] || { note "not logged in yet: open the app to log in"; return 1; }
     [ -s "$DEVKEY" ] || { note "device key missing ($DEVKEY): log in again"; return $NOSTATE; }
     prepare
@@ -438,6 +455,8 @@ cmd_toggle() {
 
 cmd_boot() {
     [ -f "$AUTO" ] || exit 0
+    # NetBird runs (with its memory) even logged out, to log in: not at boot
+    is_nb && [ ! -f "$NBENC" ] && exit 0
     # Wait up to 60 s for Wi-Fi to get an address.
     i=0; while [ $i -lt 120 ] && ! ip route 2>/dev/null | grep -q '^default'; do usleep 500000; i=$((i+1)); done
     cmd_start
@@ -497,7 +516,7 @@ wg_start() {
     mkdir -p "$RUN" && chmod 700 "$RUN"
     umask 077
     wg_open "$RUN/wg.conf" || { note "could not decrypt the WireGuard config (different device?): import it again"; rm -rf "$RUN"; return $NOSTATE; }
-    : > "$RUN/wg.log"; : > "$RUN/fwd.log"
+    : > "$RUN/wg.log"; : > "$RUN/fwd.log"; : > "$RUN/badge.log"
     rm -f "$WGSOCK"
     setsid nohup "$WGBIN" -conf "$RUN/wg.conf" -socks "127.0.0.1:$SOCKS_PORT" \
         -http "127.0.0.1:$HTTP_PROXY_PORT" -status "$WGSOCK" -routes "$ROUTES" >> "$RUN/wg.log" 2>&1 &
@@ -513,6 +532,7 @@ wg_start() {
         setsid nohup "$FWD" -c "$FWDCONF" -socks "127.0.0.1:$SOCKS_PORT" >> "$RUN/fwd.log" 2>&1 &
         echo $! > "$RUN/fwd.pid"
     fi
+    start_badge wireguard "$WGSOCK"
     note "started: WireGuard"
 }
 
@@ -573,7 +593,7 @@ nb_start() {
     mkdir -p "$RUN" && chmod 700 "$RUN"
     umask 077
     nb_load
-    : > "$RUN/nb.log"; : > "$RUN/nbhttp.log"; : > "$RUN/fwd.log"
+    : > "$RUN/nb.log"; : > "$RUN/nbhttp.log"; : > "$RUN/fwd.log"; : > "$RUN/badge.log"
     rm -f "$NBSOCK" "$NBJSON"
     # netstack mode: no TUN device; NB_DISABLE_DNS as in NetBird's rootless
     # image (the device's DNS stays as it is); the config dir keeps the CLI
@@ -600,6 +620,7 @@ nb_start() {
     # NetBird's addresses (its proxy resolves names with the device's own
     # DNS, so peers are reached by address)
     printf '# written by miniscale.sh; read by MiniDeck apps\n100.64.0.0/10\n' > "$ROUTES.tmp" && chmod 644 "$ROUTES.tmp" && mv -f "$ROUTES.tmp" "$ROUTES"
+    start_badge netbird "$NBJSON"
     setsid nohup sh "$APP/miniscale.sh" saver > /dev/null 2>&1 &
     echo $! > "$RUN/saver.pid"
     note "started: NetBird"
@@ -612,9 +633,13 @@ cmd_network() {
         *) echo "usage: miniscale.sh network [tailscale|wireguard|netbird]"; return 2 ;;
     esac
     [ "$(network)" = "$1" ] && return 0
-    if alive tailscaled || alive wg || alive netbird; then cmd_stop >/dev/null || true; fi
+    # under the lock, so a start (the boot hook's) can't run the old
+    # network after the stop, while the file changes
+    lock 60 || { echo "busy: try again"; return 1; }
+    if alive tailscaled || alive wg || alive netbird; then do_stop >/dev/null || true; fi
     if [ "$1" = tailscale ]; then rm -f "$NETFILE"; else echo "$1" > "$NETFILE"; fi
     sync
+    unlock
     note "network: $1"
 }
 
@@ -632,5 +657,5 @@ case "$1" in
     saver)  cmd_saver ;;
     status) cmd_status ;;
     seal)   cmd_seal "$2" ;;
-    *) echo "usage: $0 toggle|start|fresh|save|autostart [on|off]|stop|login|boot|status|seal FILE|network [tailscale|wireguard]|wg-import FILE"; exit 2 ;;
+    *) echo "usage: $0 toggle|start|fresh|save|autostart [on|off]|stop|login|boot|status|seal FILE|network [tailscale|wireguard|netbird]|wg-import FILE"; exit 2 ;;
 esac
