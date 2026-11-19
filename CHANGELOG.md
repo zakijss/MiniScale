@@ -6,6 +6,25 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-19
+
+### Added
+
+- The status icon in the Onion menu also shows WireGuard and NetBird: white once connected, grey while connecting, orange when NetBird needs a login or is disconnected.
+- A on this Miyoo's row in Devices opens its own details: its addresses, its full name on the tailnet and its key expiry.
+
+### Changed
+
+- Tailscale, WireGuard and NetBird free memory sooner (GOGC=50, and a 24 MiB soft limit for Tailscale), so the Miyoo swaps less. GOGC can be set in miniscale.conf.
+
+### Fixed
+
+- After a crash, starting again stops the status icon, port forwarder and saver the last run left behind, instead of running a second set next to them.
+- The status icon hides when Tailscale has crashed, instead of staying grey.
+- The status icon no longer blinks while Tailscale is slow to answer, as when the Miyoo swaps.
+- Switching networks while the boot hook starts one no longer leaves the old one running.
+- At boot, NetBird starts only once logged in: before, it ran at every boot with its memory until you logged in.
+
 ## [1.2.0] - 2026-11-12
 
 ### Added
@@ -71,7 +90,8 @@ All notable changes are listed here. The format follows
 
 - The first release: login by QR code, devices with ping, exit nodes, subnet routes, Tailscale DNS and SSH, shields up, accounts, Taildrop, start at boot, SOCKS5 and HTTP proxies, `miniscale-fwd` port forwards and a status icon in the Onion menu, on Tailscale 1.104.4.
 
-[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/zakijss/MiniScale/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/zakijss/MiniScale/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/zakijss/MiniScale/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/zakijss/MiniScale/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/zakijss/MiniScale/compare/v1.0.4...v1.0.5

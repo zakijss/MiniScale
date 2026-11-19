@@ -11,7 +11,7 @@ An unofficial Tailscale client for the Miyoo Mini Plus, which also works with yo
 - Log in by scanning a QR code with your phone; connects by itself at boot.
 - Devices with their addresses, connection type and ping; exit nodes; subnet routes; Tailscale DNS and SSH; shields up; several accounts.
 - Taildrop: files sent to the Miyoo land in `Media/Taildrop`.
-- A status icon in the Onion menu.
+- A status icon in the Onion menu, for Tailscale, WireGuard and NetBird.
 - Other networks: log in to Headscale (or another Tailscale-compatible server) with the same QR code, connect to a plain WireGuard server from a `.conf` file, or join NetBird (cloud or self-hosted). Tailscale stays the default; the others are off until you pick them.
 - Tailscale 1.104.6 built from source down to 18.9 MB, with its state on the card only encrypted, with a key kept in the device's own flash.
 
@@ -27,7 +27,7 @@ Open **Apps > MiniScale** and press **A**.
 - **X** connects and disconnects; **Y** on the Account tab removes another account.
 - **SELECT** changes the look. If Tailscale stops answering, **A** restarts it.
 
-The Devices tab counts how many devices are online, and files sent with Taildrop are announced at the top until the next press.
+The Devices tab counts how many devices are online; **A** on this Miyoo's row shows its addresses and the full name other devices reach it by. Files sent with Taildrop are announced at the top until the next press.
 
 The device has no TUN interface, so Tailscale runs in userspace mode and other programs reach the tailnet through it: through its SOCKS5 proxy (`127.0.0.1:1055`) or HTTP proxy (`127.0.0.1:1056`), as the MiniDeck apps do, or through a port forward for apps that can't use a proxy. List forwards in `App/MiniScale/forwards.conf`:
 

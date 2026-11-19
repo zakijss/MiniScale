@@ -17,3 +17,7 @@ HTTP_PROXY_PORT=1056
 #BADGE=true
 #BADGE_X=474
 #BADGE_Y=18
+
+# How soon the daemons' Go garbage collector frees memory: lower uses less
+# memory and a little more CPU (Go's own default is 100).
+#GOGC=50
