@@ -205,7 +205,7 @@ func serverHost(u string) string {
 
 // controlAddress tidies a server address typed on the keyboard:
 // "hs.example.com" becomes "https://hs.example.com". An address that isn't
-// a plain http(s) server is an error, written for the screen.
+// a plain http(s) server is errNotAddress.
 func controlAddress(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if !strings.Contains(s, "://") {
@@ -213,9 +213,16 @@ func controlAddress(s string) (string, error) {
 	}
 	p, err := url.Parse(s)
 	if err != nil || p.Host == "" || (p.Scheme != "https" && p.Scheme != "http") || p.RawQuery != "" || p.Fragment != "" {
-		return "", errors.New("That isn't a server address. Type it like hs.example.com or https://hs.example.com:8080.")
+		return "", errNotAddress
 	}
 	return strings.TrimRight(p.Scheme+"://"+p.Host+p.Path, "/"), nil
+}
+
+var errNotAddress = errors.New("not a server address")
+
+// notAddress says how to type a server address, like example.
+func notAddress(example string) string {
+	return "That isn't a server address. Type it like " + example + " or https://" + example + ":8080."
 }
 
 // pickServer asks which coordination server to log in with: Tailscale's,
@@ -250,7 +257,7 @@ func (a *app) pickServer() (control string, ok bool) {
 		if err == nil {
 			return u, true
 		}
-		a.scr.Notice(a.input, "Check the address", err.Error())
+		a.scr.Notice(a.input, "Check the address", notAddress("hs.example.com"))
 		cur = typed
 	}
 }

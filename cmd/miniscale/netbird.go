@@ -378,7 +378,7 @@ func (a *app) nbLogin(st *nbStatus) {
 				server = u
 				break
 			}
-			a.scr.Notice(a.input, "Check the address", err.Error())
+			a.scr.Notice(a.input, "Check the address", notAddress("netbird.example.com"))
 			cur = typed
 		}
 	}
