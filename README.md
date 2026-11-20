@@ -6,30 +6,33 @@
 
 # MiniScale
 
-An unofficial Tailscale client for the Miyoo Mini Plus, which also works with your own [Headscale](https://headscale.net) server, a plain WireGuard server, or [NetBird](https://netbird.io). It puts the device on your network, so the other MiniDeck apps (and your own) can reach the servers on it, and it works like the Tailscale apps on a phone. Part of [MiniDeck](https://github.com/zakijss/MiniDeck).
+An unofficial Tailscale client for the Miyoo Mini Plus, which also works with your own [Headscale](https://headscale.net) server, a plain WireGuard server, or [NetBird](https://netbird.io). It puts the device on your network, so the other MiniDeck apps (and your own) can reach the servers on it. Part of [MiniDeck](https://github.com/zakijss/MiniDeck).
 
 - Log in by scanning a QR code with your phone; connects by itself at boot.
 - Devices with their addresses, connection type and ping; exit nodes; subnet routes; Tailscale DNS and SSH; shields up; several accounts.
 - Taildrop: files sent to the Miyoo land in `Media/Taildrop`.
 - A status icon in the Onion menu, for Tailscale, WireGuard and NetBird.
-- Other networks: log in to Headscale (or another Tailscale-compatible server) with the same QR code, connect to a plain WireGuard server from a `.conf` file, or join NetBird (cloud or self-hosted). Tailscale stays the default; the others are off until you pick them.
-- Tailscale 1.104.6 built from source down to 18.9 MB, with its state on the card only encrypted, with a key kept in the device's own flash.
-
+- Headscale (or another Tailscale-compatible server) logs in with the same QR code. WireGuard (from a `.conf` file) and NetBird (cloud or self-hosted) stay off until you pick them in **Settings > Network**.
+- Tailscale 1.104.6 built from source down to 18.9 MB. Its state, like the WireGuard config and the NetBird login, is kept on the card only encrypted, with a key in the device's own flash.
 
 <p align="center"><img src="docs/desk.jpg" alt="A clear purple Miyoo Mini Plus on a stand showing a tailnet in MiniScale" width="100%"></p>
+
+## Install
+
+Open [MiniMart](https://github.com/zakijss/MiniMart) and pick **Apps > MiniScale**: it checks the download and keeps your settings on updates. Or unzip `miniscale-VERSION.zip` from [Releases](https://github.com/zakijss/MiniScale/releases/latest) onto the root of the SD card and restart. Every MiniDeck app comes in one zip too: [minideck-all.zip](https://github.com/zakijss/MiniDeck/releases/latest/download/minideck-all.zip).
+
+Needs a Miyoo Mini Plus on Onion OS 4.4, with Wi-Fi, and a Tailscale account, a Headscale server, a WireGuard server or a NetBird account. Other devices and firmwares aren't supported.
 
 ## Using it
 
 Open **Apps > MiniScale** and press **A**.
 
 - **L1**/**R1** switch between Devices, Exit node, Settings and Account; **L2**/**R2** jump to the top and the bottom of the list.
-- **A** opens a device, picks an exit node or changes a setting; on a device, **X** pings it and **Y** uses it as the exit node.
+- **A** opens a device, picks an exit node or changes a setting; on a device, **X** pings it and **Y** uses it as the exit node. **A** on this Miyoo's own row shows its addresses and the full name other devices reach it by.
 - **X** connects and disconnects; **Y** on the Account tab removes another account.
 - **SELECT** changes the look. If Tailscale stops answering, **A** restarts it.
 
-The Devices tab counts how many devices are online; **A** on this Miyoo's row shows its addresses and the full name other devices reach it by. Files sent with Taildrop are announced at the top until the next press.
-
-The device has no TUN interface, so Tailscale runs in userspace mode and other programs reach the tailnet through it: through its SOCKS5 proxy (`127.0.0.1:1055`) or HTTP proxy (`127.0.0.1:1056`), as the MiniDeck apps do, or through a port forward for apps that can't use a proxy. List forwards in `App/MiniScale/forwards.conf`:
+The device has no TUN interface, so Tailscale runs in userspace mode and other programs reach the network through its SOCKS5 proxy (`127.0.0.1:1055`) or HTTP proxy (`127.0.0.1:1056`), as the MiniDeck apps do. For apps that can't use a proxy, list port forwards in `App/MiniScale/forwards.conf`:
 
 ```
 8096  homeserver:8096      # Jellyfin
@@ -37,11 +40,15 @@ The device has no TUN interface, so Tailscale runs in userspace mode and other p
 
 Settings that apply before the first login (the device name, Tailscale SSH, the proxy ports) are in `App/MiniScale/miniscale.conf`. With MiniScale on, the CLI is `/tmp/miniscale/tailscale --socket=/tmp/miniscale/tailscaled.sock`.
 
-### Headscale
+<details>
+<summary><b>Headscale</b></summary>
 
 When you log in or add an account, pick **Your own server** and type its address (for example `hs.example.com`). The QR code then opens your server's login page; with Headscale, approve the device there or with `headscale nodes register`. Each account remembers its server, and the Account tab shows it.
 
-### WireGuard
+</details>
+
+<details>
+<summary><b>WireGuard</b></summary>
 
 For a plain WireGuard server (a router, wg-easy, a VPS), MiniScale runs WireGuard in userspace behind the same proxies, so the other apps work unchanged.
 
@@ -49,29 +56,22 @@ For a plain WireGuard server (a router, wg-easy, a VPS), MiniScale runs WireGuar
 2. Copy it to the top of the SD card or to `App/MiniScale`, or send it with Taildrop.
 3. In MiniScale, choose **Settings > Network** (or **Y** while MiniScale is off), pick **WireGuard**, then **Import a config**, and connect.
 
-MiniScale keeps the config encrypted with the device key, like the Tailscale login, and offers to remove the plain file, which holds the private key. Connections to the addresses in a peer's `AllowedIPs` go through WireGuard and the rest go out directly, so a full-tunnel config (`0.0.0.0/0`) sends everything through your server, names looked up included. Only TCP goes through the proxies. **Switch network** on the WireGuard screen goes back; every login stays saved.
+MiniScale keeps the config encrypted and offers to remove the plain file, which holds the private key. Connections to the addresses in a peer's `AllowedIPs` go through WireGuard and the rest go out directly, so a full-tunnel config (`0.0.0.0/0`) sends everything through your server, names looked up included. Only TCP goes through the proxies. **Switch network** on the WireGuard screen goes back; every login stays saved.
 
-### NetBird
+</details>
 
-NetBird's own client is included, built from source, and stays off until you choose **Settings > Network > NetBird**. Turn it on, then log in to NetBird's cloud or your own server, with a QR code on your phone or a setup key from the dashboard. Its state is kept encrypted with the device key, like the Tailscale login.
+<details>
+<summary><b>NetBird</b></summary>
+
+NetBird's own client is included, built from source. Choose **Settings > Network > NetBird**, turn it on, then log in to NetBird's cloud or your own server, with a QR code on your phone or a setup key from the dashboard.
 
 - NetBird uses about twice Tailscale's memory: close big apps if the Miyoo slows down.
 - Reach your NetBird devices by their addresses (100.x.y.z): NetBird's proxy looks names up with the Miyoo's own DNS, so NetBird names don't resolve through it.
 - Only TCP goes through the proxies, and NetBird's routes to other networks and exit nodes aren't available in this mode.
 
+</details>
+
 While WireGuard or NetBird runs, MiniScale lists what goes through its proxy in `/tmp/miniscale/routes`, and the MiniDeck apps (from MiniDeck 1.1) send those addresses through it.
-
-MiniScale is not made or supported by Tailscale Inc. or NetBird GmbH. WireGuard is a registered trademark of Jason A. Donenfeld.
-
-## Install
-
-- **MiniMart:** open [MiniMart](https://github.com/zakijss/MiniMart), then **Apps > MiniScale**. It checks the download and keeps your settings on updates.
-- **Zip:** download `miniscale-VERSION.zip` from [Releases](https://github.com/zakijss/MiniScale/releases/latest), unzip it onto the root of the SD card, and restart.
-- **Every MiniDeck app at once:** [minideck-all.zip](https://github.com/zakijss/MiniDeck/releases/latest/download/minideck-all.zip).
-
-## Requirements
-
-A Miyoo Mini Plus on Onion OS 4.4, with Wi-Fi. A Tailscale account, a Headscale server, a WireGuard server, or a NetBird account. Other devices and firmwares aren't supported.
 
 ## Building
 
@@ -85,4 +85,4 @@ Go runs in Docker unless you pass `GO=go` (Go 1.27). The interface, themes and n
 
 ## License
 
-[MIT](LICENSE). Third-party components are listed in [NOTICE](NOTICE). Not made by or affiliated with Miyoo.
+[MIT](LICENSE). Third-party components are listed in [NOTICE](NOTICE). MiniScale is not made or supported by Tailscale Inc. or NetBird GmbH, or affiliated with Miyoo. WireGuard is a registered trademark of Jason A. Donenfeld.
