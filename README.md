@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/hero.jpg" alt="Three Miyoo Mini Plus handhelds on a sunlit window sill with potted plants, a white one on a stand showing a tailnet in MiniScale" width="100%"></p>
+<p align="center"><img src="docs/hero.jpg" alt="A white Miyoo Mini Plus on a stand on a pale stone table with teacups, showing a tailnet in MiniScale, with a clear purple one and a smoked black one lying beside it" width="100%"></p>
 
 [![CI](https://github.com/zakijss/MiniScale/actions/workflows/ci.yml/badge.svg)](https://github.com/zakijss/MiniScale/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/zakijss/MiniScale)](https://github.com/zakijss/MiniScale/releases)
@@ -15,7 +15,7 @@ An unofficial Tailscale client for the Miyoo Mini Plus, which also works with yo
 - Headscale (or another Tailscale-compatible server) logs in with the same QR code. WireGuard (from a `.conf` file) and NetBird (cloud or self-hosted) stay off until you pick them in **Settings > Network**.
 - Tailscale 1.104.6 built from source down to 18.9 MB. Its state, like the WireGuard config and the NetBird login, is kept on the card only encrypted, with a key in the device's own flash.
 
-<p align="center"><img src="docs/desk.jpg" alt="A clear purple Miyoo Mini Plus on a stand showing a tailnet in MiniScale" width="100%"></p>
+<p align="center"><img src="docs/desk.jpg" alt="A white Miyoo Mini Plus on a stand on an oak desk by a keyboard and a mug, showing a tailnet in MiniScale, with a clear purple one beside it open at one peer" width="100%"></p>
 
 ## Install
 
